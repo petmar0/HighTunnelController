@@ -1,4 +1,3 @@
-#include <Wire.h>
 #include <Time.h>
 #include <SD.h>
 #include <WildFire.h>
@@ -24,6 +23,8 @@ char temperature_units = 'F'; //Set ot F for Farenheight of C for Celcius.  If y
 // Variables that are internal to the program
 boolean sdCardWorking = false;
 boolean logFileWorking = false;
+boolean runFansNext = true; //Used to alternate between running fans and rolling sides
+boolean shuttersOpen = false; //Used to track shutter status
 String lastAction = "nothing"; //State ariable used by program to help decide next action can be nothing, fans, or sides
 WildFire wf;
 
@@ -263,10 +264,9 @@ void setTimeFromSerialPort(String inputString) {
   logMessage("Read time from serial as: " + inputString);
   parsedTime = inputString.toInt();
   // Only set time if it is in a reasonable time range (between 2015 and 2030)
-  // offset time using gmt_hour_offset;
   if(parsedTime > MIN_ALLOWABLE_DATE_TIME && parsedTime < MAX_ALLOWABLE_DATE_TIME) {
     logMessage("Updating time using the configured gmt_hour_offset of " + String(gmt_hour_offset));
-    parsedTime = parsedTime + gmt_hour_offset * SECONDS_IN_HOUR;
+    parsedTime = parsedTime;
     setTime(parsedTime);
     logMessage("Time set");
   }
@@ -317,8 +317,15 @@ String getTimeStampString() {
     logError("Time status is timeNotSet, this should never be");
     return "ERROR: UNSET TIME";
   }
+  // offset time using gmt_hour_offset
+  adjustTime(gmt_hour_offset * SECONDS_IN_HOUR);
   timeStamp = zeroPad(month(),2) + "/" + zeroPad(day(),2) + "/" + zeroPad(year(),4) + " ";
   timeStamp += zeroPad(hour(),2) + ":" + zeroPad(minute(),2) + ":" + zeroPad(second(),2);
+  // return time to non-offset mode to keep it a true timezone free Epoch
+  // If this leads to the time getting off faster we can remove it and just set
+  // epoch with the offset once and leave it, but that means that if you ever output
+  // an epoch timestamp it won't be set to GMT as it should be.
+  adjustTime(gmt_hour_offset * SECONDS_IN_HOUR * -1);
   return timeStamp;
 }
 //////////////////////// End Time and logging Functions ////////////////////////
@@ -361,10 +368,6 @@ String getTemperatureStatus () {
 }
 ////////////////////////Start High Tunnel Sensor Functions////////////////////////
 
-/*
-boolean runFansNext = true; //Used to alternate between running fans and rolling sides
-boolean shuttersOpen = false; //Used to track shutter status
-*/
 
 ////////////////////////Start High Tunnel Control State Functions////////////////////////
 void manageHighTunnelTemp () {
@@ -394,6 +397,9 @@ void manageHighTunnelTemp () {
   else {
     logError("Unexpected value returned by getTemperatureStatus().");
   }
+}
+
+void openShutters () {
 }
 
 void rollUpSides () {
