@@ -10,22 +10,28 @@ const unsigned long SECONDS_IN_HOUR         = 3600;
 char configFileName[] = "live.cfg"; //recommended to leave this set and rename a different file as live.cfg to update it
 char logFileName[] = "live.log"; //recommended to leave this set.  Multiple log files will be spun off as we go.
 
-// Variables that should be passed in via config file
+// External variables that can be passed in via config file
 int gmt_hour_offset = -5; // -5 is the EST offset
 float too_hot_delta = 6.0;  // If difference between inside and outside temp is more than this start to cool
 float way_too_hot_delta = 7.5; // If difference between inside and outside temp is more than this use more aggressive cooling measures
 float too_cool_delta = 4.0; // If difference between inside and outside temp is less than this start to warm
-float super_cool_delta = -1; // If difference between inside and outside temp is less than this and warm up inside using outside air
+float super_cool_delta = -1.0; // If difference between inside and outside temp is less than this and warm up inside using outside air
 boolean disable_log_file = false; // setting this to true disables writing to log file. Can help debug memory card issues
 boolean manual_delta_temp_entry_mode = true; //If true then read delta temps from Serial input by user instead of actual sensors.  Used to test system.
 char temperature_units = 'F'; //Set ot F for Farenheight of C for Celcius.  If you change this you should probably change the deltas too.
+int inside_temp_sensor_pin = 0;
+int outside_temp_sensor_pin = 1;
+float thermistor_B = 1.0; // Thermistor B parameter - found in datasheet 
+float thermistor_T0 = 1.0; // Manufacturer T0 parameter - found in datasheet (kelvin)
+float thermistor_R0 = 1.0; // Manufacturer R0 parameter - found in datasheet (ohms)
+float thermistor_R_Balance = 1.0; // Your balance resistor resistance in ohms
+unsigned long millisecond_delay_between_actions = 10000; // How long to wait between reading temperature and taking action to correct it
 
-// Variables that are internal to the program
+// Internal variables that the program manages itself
 boolean sdCardWorking = false;
 boolean logFileWorking = false;
 boolean runFansNext = true; //Used to alternate between running fans and rolling sides
 boolean shuttersOpen = false; //Used to track shutter status
-String lastAction = "nothing"; //State ariable used by program to help decide next action can be nothing, fans, or sides
 WildFire wf;
 
 ////////////////////////Start SD Card Functions////////////////////////
@@ -72,7 +78,7 @@ void readConfigFromFile () {
     while (configFile.available()) {
       String key = configFile.readStringUntil('=');
       String value = configFile.readStringUntil('\n');
-      processKeyValuePair(key,value);
+      processKeyValuePair(key,value,false);
     }
     // close the file:
     configFile.close();
@@ -80,24 +86,119 @@ void readConfigFromFile () {
     logMessage("Error opening config file " + String(configFileName));
 }
 
-void processKeyValuePair(String key, String value) {
-  logMessage("Processing key value pair of key=" + key + " value=" + value);
-  if (key == "gmt_hour_offset" && confirmValidNum(value,true,false)) {
-    gmt_hour_offset = value.toInt();
-    logMessage("Config File setting gmt_hour_offset to " + String(gmt_hour_offset));
-  }
-  else {
-    logMessage("key:'" + key + "' is not valid.  Ignoring value:'" + value + "'");
-  }
+int processConfigInt (String key, String value) {
+  float output = value.toInt();
+  logMessage("Config File setting " + key + " to int " + String(output));
+  return output;
 }
 
-boolean confirmValidNum(String str, boolean allowNegative, boolean allowDecimalPoint) {
+float processConfigFloat (String key, String value) {
+  float output = value.toFloat();
+  logMessage("Config File setting " + key + " to float " + String(output));
+  return output;
+}
+
+boolean processConfigBool (String key, String value) {
+  boolean output = confirmValidBool(value, true, false);
+  logMessage ("Config File setting " + key + " to boolean " + String(output)); 
+  return output;
+}
+
+boolean validKey (String key, String desiredKey, boolean printOutMode) {
+  if (printOutMode) {
+    Serial.print (desiredKey + " is a valid key");
+    return true;
+  }
+  if (key == desiredKey)
+    return true;
+  return false;
+}
+
+// printOutMode is used to print a list of keys and what qualifies as valid for each to the terminal for reference.
+// coding it this way means that the list of keys and validity is printed directly from this procedure so as new
+// keys are added or validity conditions are updated it will always print out correct output.
+void processKeyValuePair(String key, String value, boolean printOutMode) {
+  if (!printOutMode)
+    logMessage("Processing key value pair of key=" + key + " value=" + value);
+  if (validKey(key, "gmt_hour_offset", printOutMode) && confirmValidNum(value,true,false, printOutMode))
+    gmt_hour_offset = processConfigInt(key,value);
+  else if (validKey(key, "too_hot_delta", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    too_hot_delta = processConfigFloat(key,value);
+  else if (validKey(key, "way_too_hot_delta", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    way_too_hot_delta = processConfigFloat(key,value);
+  else if (validKey(key, "too_cool_delta", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    too_cool_delta = processConfigFloat(key,value);
+  else if (validKey(key, "super_cool_delta", printOutMode) && confirmValidNum(value,true,true, printOutMode))
+    super_cool_delta = processConfigFloat(key,value);
+  else if (validKey(key, "inside_temp_sensor_pin", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    inside_temp_sensor_pin = processConfigInt(key,value);
+  else if (validKey(key, "outside_temp_sensor_pin", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    outside_temp_sensor_pin = processConfigInt(key,value);
+  else if (validKey(key, "disable_log_file", printOutMode) && confirmValidBool(value, false, printOutMode))
+    disable_log_file = processConfigBool(key,value);
+  else if (validKey(key, "manual_delta_temp_entry_mode", printOutMode) && confirmValidBool(value, false, printOutMode))
+    manual_delta_temp_entry_mode = processConfigBool(key,value);
+  else if (validKey(key, "temperature_units", printOutMode) && confirmValidTemperatureUnit(value, printOutMode))
+    temperature_units = value.charAt(0);
+  else if (validKey(key, "thermistor_B", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    thermistor_B = processConfigFloat(key,value);
+  else if (validKey(key, "thermistor_T0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    thermistor_T0 = processConfigFloat(key,value);
+  else if (validKey(key, "thermistor_R0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    thermistor_R0 = processConfigFloat(key,value);
+  else if (validKey(key, "thermistor_R_Balance", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    thermistor_R_Balance = processConfigFloat(key,value);
+  else if (validKey(key, "millisecond_delay_between_actions", printOutMode) && confirmValidNum(value,false,false,printOutMode))
+    millisecond_delay_between_actions = processConfigInt(key,value);
+  else if (!printOutMode)
+    logMessage("key:'" + key + "' is not valid.  Ignoring value:'" + value + "'");
+}
+
+boolean confirmValidTemperatureUnit(String str, boolean printOutMode) {
+  if (printOutMode)
+    Serial.println (" its value must be F or C");
+  if (str.charAt(0) == 'F' or str.charAt(0) == 'C')
+    return true;
+  return false;
+}
+
+// returnParsedValue lets this function return the actual parsed boolean value of the string
+// this allows us to avoid duplicating the boolean string processing code in processConfigBool which could lead to errors
+boolean confirmValidBool(String str, boolean returnParsedValue, boolean printOutMode) {
+  if (printOutMode)
+    Serial.println (" its value must be a boolean (true, false, t, f, 1, or 0)");
+  if (str.equalsIgnoreCase("true") or str.equalsIgnoreCase("t") or str.equalsIgnoreCase("1"))
+    return true;
+  if (str.equalsIgnoreCase("false") or str.equalsIgnoreCase("f") or str.equalsIgnoreCase("0")) {
+    if (returnParsedValue)
+      return false;
+    else
+      return true;
+  }
+  return false;
+}
+
+boolean confirmValidNum(String str, boolean allowNegative, boolean allowDecimalPoint, boolean printOutMode) {
+  if (printOutMode) {
+    if (allowDecimalPoint)
+      Serial.print (" its value must be a decimal number (exe. 2.34)");
+    else
+      Serial.print (" its value must be an integer number (exe. 2)");
+    if (!allowNegative)
+      Serial.print (" at or above zero");
+    Serial.println();
+  }
   boolean isValidNum=false;
   boolean oneDecimalFound=false;
   int i = 0;
-  // if we want to allow negatives and the first char is a minus sign ignore it
-  if (allowNegative && str.charAt(0)=='-')
-    i=1;
+  // if we want to allow negatives and the first char is a minus sign ignore it, if we do not want to allow negatives log specific error
+  if (str.charAt(0) == '-') 
+    if (allowNegative)
+      i=1;
+    else {
+      logError("Negative values not allowed!  Value " + str + " is invalid");
+      return false;
+    }
   for(i;i<str.length();i++)
   {
     isValidNum = isDigit(str.charAt(i));
@@ -202,11 +303,13 @@ void printHelp() {
   Serial.println("r; Read all lines from config file");
   Serial.println("eY; Remove all data from config file");
   Serial.println("s; Set key value pairs from config file");
+  Serial.println("p; Print all allowed key value pairs and allowable inputs for each");
   Serial.println("l; Read all data from log file");
   Serial.println("cY; Remove all data from log file");
   Serial.println("f; Print all the files and folders in base dir");
   Serial.println("TValue; Set internal time to Value (given as unix timestamp)");
   Serial.println("t; Print currently set date/time to Serial");
+  Serial.println("b; Begin running the high tunnel temperature control program");
   Serial.println("h; Print this help text");
   Serial.println();
   Serial.println("Waiting for input...");
@@ -228,6 +331,9 @@ void processSerialInput (char serialCommand){
     case 's':
       readConfigFromFile();
       break;
+    case 'p':
+      processKeyValuePair("", "", true);
+      break;
     case 'l':
       readSdFile(logFileName);
       break;
@@ -242,6 +348,20 @@ void processSerialInput (char serialCommand){
       break;
     case 't':
       Serial.println(getTimeStampString());
+      break;
+    case 'b':
+      Serial.println("Running high tunnel control.");
+      char cancelByte;
+      while (cancelByte != 'x') {
+        manageHighTunnelTemp();
+        Serial.println("Enter x to quit out of it and return to serial interface");
+        delay(millisecond_delay_between_actions);
+        if (Serial.available() > 0) {
+          cancelByte = Serial.read();
+        }
+      }
+      Serial.print("Cancel Command received returning to serial interface.");
+      printHelp();
       break;
     case 'h':
       printHelp();
@@ -265,8 +385,7 @@ void setTimeFromSerialPort(String inputString) {
   parsedTime = inputString.toInt();
   // Only set time if it is in a reasonable time range (between 2015 and 2030)
   if(parsedTime > MIN_ALLOWABLE_DATE_TIME && parsedTime < MAX_ALLOWABLE_DATE_TIME) {
-    logMessage("Updating time using the configured gmt_hour_offset of " + String(gmt_hour_offset));
-    parsedTime = parsedTime;
+    logMessage("Updating time.  Current gmt offset is " + String(gmt_hour_offset));
     setTime(parsedTime);
     logMessage("Time set");
   }
@@ -331,6 +450,24 @@ String getTimeStampString() {
 //////////////////////// End Time and logging Functions ////////////////////////
 
 ////////////////////////Start High Tunnel Sensor Functions////////////////////////
+// TODO: confirm that this code works with the actual sensors and their input values
+float getTempFromSensor (String insideOrOutside) {
+  float sensorRead;
+  if (insideOrOutside == "inside") 
+    sensorRead = analogRead(inside_temp_sensor_pin);
+  else 
+    sensorRead = analogRead(outside_temp_sensor_pin);
+  
+  // Temperature conversion code adapted from http://playground.arduino.cc/ComponentLib/Thermistor2
+  float thermistor_R=thermistor_R_Balance*(1024.0f/sensorRead-1);
+  float temperature=1.0f/(1.0f/thermistor_T0+(1.0f/thermistor_B)*log(thermistor_R/thermistor_R0)) - 273.15;
+  // Convert Celcius to Fahrenheit if set to F
+  if (temperature_units == 'F')
+      temperature = (temperature * 9.0)/ 5.0 + 32.0;
+  logMessage("The " + insideOrOutside + " temperature sensor has a digital value of " + sensorRead + " which is " + temperature + " " + String(temperature_units));
+  return temperature;
+}
+
 float getCurrentTempDelta() {
   float deltaTemp=-9999.0;
   if (manual_delta_temp_entry_mode) {
@@ -338,18 +475,15 @@ float getCurrentTempDelta() {
     Serial.println("Enter inside temp - outside temp (in " + String(temperature_units) + ") as a decimal value followed by a semicolon. eve. 3.2;");
     while (deltaTemp == -9999.0) {
       String inputValue = Serial.readStringUntil(';');
-      if (confirmValidNum(inputValue, true, true))
+      if (confirmValidNum(inputValue, true, true, false))
         deltaTemp = inputValue.toFloat();
     }
   }
   else {
-    // TODO: Add code here to pull temperature sensor values from inside and outside, convert from volts to temp in temperature_units and return difference)
-    if (temperature_units = 'F')
-      deltaTemp = 4.0;
-    else {
-      // If temperature_units is not F assume C
-      deltaTemp = 3.0;
-    }
+    float insideTemp = getTempFromSensor ("inside");
+    float outsideTemp = getTempFromSensor ("outside");
+    deltaTemp = insideTemp - outsideTemp;
+    logMessage ("Temp Reading in " + String(temperature_units) + ". Inside=" + String(insideTemp)  + " Outside=" + String(outsideTemp) + " Diff=" + deltaTemp);
   }
   return deltaTemp;
 }
@@ -372,40 +506,79 @@ String getTemperatureStatus () {
 ////////////////////////Start High Tunnel Control State Functions////////////////////////
 void manageHighTunnelTemp () {
   String currentTempStatus = getTemperatureStatus();
-  logMessage("Current Temperature Status is" + currentTempStatus);
+  logMessage("Current Temperature Status is " + currentTempStatus);
   
+  // if it is way too hot both roll up the sides and run the fans.
   if (currentTempStatus=="Way Too Hot") {
-    logMessage("It's way too hot relative to outside so opening sides a bit and running fans a bit");
-    rollUpSides();
+    openShuttersIfNeeded();
+    rollSides("Up");
     runFans();
   }
+  // if it is too hot open shutters then alternate between running fans and rolling up sides to try and cool down a bit only do one thing at a time to save energy
   else if (currentTempStatus=="Too Hot") {
-    logMessage("It's a bit too hot relative to outside");
     if (!shuttersOpen)
-      openShutters();
+      changeShutters();
     else if (runFansNext)
       runFans();
     else
-      rollUpSides();
+      rollSides("Up");
   }
+  // if it is colder inside than out then run the fans a bit to bring in the warmer outside air
   else if (currentTempStatus=="Super Cool") {
+    openShuttersIfNeeded();
+    runFans();
   }
+  // if it is too cool inside close the shutters, if that does not work then try rolling down the sides a bit
   else if (currentTempStatus=="Too Cool") {
+    if (shuttersOpen)
+      changeShutters();
+    else
+      rollSides("Down");
   }
   else if (currentTempStatus=="Just Right") {
+    logMessage("Temp is in acceptable bounds, leaving everything as is");
   }
   else {
     logError("Unexpected value returned by getTemperatureStatus().");
   }
 }
 
-void openShutters () {
+void openShuttersIfNeeded () {
+  if (!shuttersOpen) {
+    changeShutters();
+  }
 }
 
-void rollUpSides () {
+void changeShutters () {
+  if (shuttersOpen) {
+    logMessage("Opening shutters");
+    // TODO add code to actually open shutters
+    shuttersOpen = true;
+  }
+  else {
+    logMessage("Closing shutters");
+    // TODO add code to actually close shutters
+    shuttersOpen = false;
+  }  
+}
+
+void rollSides (String rollDirection) {
+  if (rollDirection = "Up") {
+    logMessage ("Rolling sides up a bit");
+  }
+  else {
+    logMessage ("Rolling sides down a bit");
+  }
+  runFansNext = true;
+  // TODO add code to actually roll the sides
+  // set direction for a while before you roll so rolling alarm horn will sound
+  // ensure that we have not hit the limit sensors while rolling
 }
 
 void runFans() {
+  // TODO add code to actually run the fans
+  logMessage ("Running fans");
+  runFansNext = false;
 }
 //////////////////////// End High Tunnel Control State Functions ////////////////////////
 
