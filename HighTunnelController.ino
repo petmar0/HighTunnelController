@@ -21,10 +21,14 @@ boolean manual_sensor_entry_mode = true; //If true then read sensors from Serial
 char temperature_units = 'F'; //Set ot F for Farenheight of C for Celcius.  If you change this you should probably change the deltas too.
 int inside_temp_sensor_pin = A0; //Analog pin that temperature sensor inside the high tunnel is connected to
 int outside_temp_sensor_pin = A1; //Analog pin that temperature sensor outside the high tunnel is connected to
-float thermistor_B = 1.0; // Thermistor B parameter - found in datasheet 
-float thermistor_T0 = 1.0; // Manufacturer T0 parameter - found in datasheet (kelvin)
-float thermistor_R0 = 1.0; // Manufacturer R0 parameter - found in datasheet (ohms)
-float thermistor_R_Balance = 1.0; // Your balance resistor resistance in ohms
+float inside_thermistor_B = 1.0; // Thermistor B parameter - found in datasheet 
+float inside_thermistor_T0 = 1.0; // Manufacturer T0 parameter - found in datasheet (kelvin)
+float inside_thermistor_R0 = 1.0; // Manufacturer R0 parameter - found in datasheet (ohms)
+float inside_thermistor_R_Balance = 1.0; // Your balance resistor resistance in ohms
+float outside_thermistor_B = 1.0; // Thermistor B parameter - found in datasheet 
+float outside_thermistor_T0 = 1.0; // Manufacturer T0 parameter - found in datasheet (kelvin)
+float outside_thermistor_R0 = 1.0; // Manufacturer R0 parameter - found in datasheet (ohms)
+float outside_thermistor_R_Balance = 1.0; // Your balance resistor resistance in ohms
 unsigned long millisecond_delay_between_actions = 10000; // How long to wait between reading temperature and taking action to correct it
 unsigned long millisecond_delay_low_power = 110000; // When battery is low add this to millisecond_delay_between_actions to slow down power consumption
 int alarm_before_winch_roll_seconds = 3; //How long to sound alarm buzzer for before rolling sides (alarm buzzer should be connected to direction relays)
@@ -46,6 +50,7 @@ int battery_sensor_pin = A2; //Analog pin that senses how much power is left in 
 int solar_sensor_pin = A3; //Analog pin that senses how much power the solar panel is delivering
 // TODO figure out what an actual sensible reading for battery_low_power_reading is
 int battery_low_power_reading = 512; //Reading below which battery is considered to be at Low power 
+boolean automatically_start_high_tunnel_control = false; //Set this to true so that upon restart the high tunnel control program automatically runs
 
 // Internal variables that the program manages itself
 boolean sdCardWorking = false;
@@ -53,6 +58,10 @@ boolean logFileWorking = false;
 boolean runFansNext = true; //Used to alternate between running fans and rolling sides
 boolean shuttersOpen = false; //Used to track shutter status
 WildFire wf;
+
+// TODO add RTC code
+// TODO add heatwave code
+// TODO add code to convert solar panel and battery readings to voltages
 
 ////////////////////////Start SD Card Functions////////////////////////
 void setupSdCard() {
@@ -160,14 +169,22 @@ void processKeyValuePair(String key, String value, boolean printOutMode) {
     manual_sensor_entry_mode = processConfigBool(key,value);
   else if (validKey(key, "temperature_units", printOutMode) && confirmValidTemperatureUnit(value, printOutMode))
     temperature_units = value.charAt(0);
-  else if (validKey(key, "thermistor_B", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    thermistor_B = processConfigFloat(key,value);
-  else if (validKey(key, "thermistor_T0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    thermistor_T0 = processConfigFloat(key,value);
-  else if (validKey(key, "thermistor_R0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    thermistor_R0 = processConfigFloat(key,value);
-  else if (validKey(key, "thermistor_R_Balance", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    thermistor_R_Balance = processConfigFloat(key,value);
+  else if (validKey(key, "inside_thermistor_B", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    inside_thermistor_B = processConfigFloat(key,value);
+  else if (validKey(key, "inside_thermistor_T0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    inside_thermistor_T0 = processConfigFloat(key,value);
+  else if (validKey(key, "inside_thermistor_R0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    inside_thermistor_R0 = processConfigFloat(key,value);
+  else if (validKey(key, "inside_thermistor_R_Balance", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    inside_thermistor_R_Balance = processConfigFloat(key,value);
+  else if (validKey(key, "outside_thermistor_B", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    outside_thermistor_B = processConfigFloat(key,value);
+  else if (validKey(key, "outside_thermistor_T0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    outside_thermistor_T0 = processConfigFloat(key,value);
+  else if (validKey(key, "outside_thermistor_R0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    outside_thermistor_R0 = processConfigFloat(key,value);
+  else if (validKey(key, "outside_thermistor_R_Balance", printOutMode) && confirmValidNum(value,false,true, printOutMode))
+    outside_thermistor_R_Balance = processConfigFloat(key,value);
   else if (validKey(key, "millisecond_delay_between_actions", printOutMode) && confirmValidNum(value,false,false,printOutMode))
     millisecond_delay_between_actions = processConfigInt(key,value);
   else if (validKey(key, "millisecond_delay_low_power", printOutMode) && confirmValidNum(value,false,false,printOutMode))
@@ -205,7 +222,9 @@ void processKeyValuePair(String key, String value, boolean printOutMode) {
   else if (validKey(key, "battery_sensor_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
     battery_sensor_pin = processConfigInt(key,value);
   else if (validKey(key, "solar_sensor_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
-    solar_sensor_pin = processConfigInt(key,value);    
+    solar_sensor_pin = processConfigInt(key,value);
+  else if (validKey(key, "automatically_start_high_tunnel_control", printOutMode) && confirmValidBool(value, false, printOutMode))
+    automatically_start_high_tunnel_control = processConfigBool(key,value);
   else if (!printOutMode)
     logMessage("key:'" + key + "' is not valid.  Ignoring value:'" + value + "'");
 }
@@ -578,8 +597,19 @@ boolean limitSwitchHit (String rollDirection, String rollSide, boolean logWhenLi
 // TODO: confirm that this code works with the actual sensors and their input values
 float getTempFromSensor (String insideOrOutside) {
   float sensorRead;
-  if (insideOrOutside == "inside") 
+  // initialize to outside and reset to inside if needed
+  float thermistor_B = outside_thermistor_B;
+  float thermistor_T0 = outside_thermistor_T0;
+  float thermistor_R0 = outside_thermistor_R0;
+  float thermistor_R_Balance = outside_thermistor_R_Balance;
+
+  if (insideOrOutside == "inside") {
     sensorRead = analogRead(inside_temp_sensor_pin);
+    thermistor_B = inside_thermistor_B;
+    thermistor_T0 = inside_thermistor_T0;
+    thermistor_R0 = inside_thermistor_R0;
+    thermistor_R_Balance = inside_thermistor_R_Balance;
+  }
   else 
     sensorRead = analogRead(outside_temp_sensor_pin);
   
@@ -830,6 +860,9 @@ void setup(){
 
 void loop(){
   char incomingByte;
+  if (automatically_start_high_tunnel_control)
+    processSerialInput('b');
+    
   if (Serial.available() > 0){
     incomingByte = Serial.read();
     Serial.print("     Command received: ");
