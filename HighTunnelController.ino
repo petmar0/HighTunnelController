@@ -1,14 +1,16 @@
 #include <Time.h>
 #include <SD.h>
 #include <WildFire.h>
+#include <Wire.h>
+#include "RTClib.h"
 
 // Constants used by program, note that the file names are essentially constants but specifying that causes an error
 const unsigned long MIN_ALLOWABLE_DATE_TIME = 1420156799; // 1 second before Jan 1 2015 GMT
 const unsigned long MAX_ALLOWABLE_DATE_TIME = 1893520800; // Jan 1 2030 GMT
-const unsigned long UNSET_TIME_DEFAULT      = 915148800L;  //Jan 1 1999 GMT
 const unsigned long SECONDS_IN_HOUR         = 3600;
 char configFileName[] = "live.cfg"; //recommended to leave this set and rename a different file as live.cfg to update it
 char logFileName[] = "live.log"; //recommended to leave this set.  Multiple log files will be spun off as we go.
+char heatWaveFileName[] = "heat.log"; //recommended to leave this set. This is where heatwave data is logged explicitly.
 
 // External variables that can be passed in via config file
 int gmt_hour_offset = -5; // -5 is the EST offset
@@ -19,6 +21,9 @@ float super_cool_delta = -1.0; // If difference between inside and outside temp 
 boolean disable_log_file = false; // setting this to true disables writing to log file. Can help debug memory card issues
 boolean manual_sensor_entry_mode = true; //If true then read sensors from Serial input by user instead of actual sensors.  Used to test system.
 char temperature_units = 'F'; //Set ot F for Farenheight of C for Celcius.  If you change this you should probably change the deltas too.
+int heat_wave_temperature = 90; //Temperature at which tunnel is considered a heatwave. WARNING if you update temperature units to C you MUST update this as well
+int heat_wave_hours_to_log = 6; //How many consecutive hours temp must be above heat_wave_temperature to count as a heat wave day
+int heat_wave_days_to_log = 3; //How many consecutive heat wave days must happen to count as a heat wave
 int inside_temp_sensor_pin = A0; //Analog pin that temperature sensor inside the high tunnel is connected to
 int outside_temp_sensor_pin = A1; //Analog pin that temperature sensor outside the high tunnel is connected to
 float inside_thermistor_B = 1.0; // Thermistor B parameter - found in datasheet 
@@ -57,11 +62,17 @@ boolean sdCardWorking = false;
 boolean logFileWorking = false;
 boolean runFansNext = true; //Used to alternate between running fans and rolling sides
 boolean shuttersOpen = false; //Used to track shutter status
+int heatWaveRequiredEndTime = 0; // Store the hour/minute when you'll know a heatwave has lasted long enough to be counted for the day
+boolean heatWaveTempSurpassedToday = false; // If we ever go above heat wave temp for a moment today note it
+boolean heatWaveHoursSurpassedToday = false; // If it has stayed above heat_wave_temperature for heat_wave_hours_to_log then note it
+int heatWaveDaysInARow = 0; // Count how many days we have had heatWaveHoursSurpassedToday in a row
+int heatWaveVarsResetDay = 0; // Note the last day that heatwave vars were reset, if it isn't today log heatwave data and reset vars
 WildFire wf;
+RTC_DS1307 rtc;
 
-// TODO add RTC code
-// TODO add heatwave code
-// TODO add code to convert solar panel and battery readings to voltages
+// TODO add heatwave maintaining code NEED pin for heatwave switch from Pete
+// TODO add code to convert solar panel and battery readings to voltages NEED to get conversion details from Pete
+// NEED temp sensor variables from Pete
 
 ////////////////////////Start SD Card Functions////////////////////////
 void setupSdCard() {
@@ -169,6 +180,12 @@ void processKeyValuePair(String key, String value, boolean printOutMode) {
     manual_sensor_entry_mode = processConfigBool(key,value);
   else if (validKey(key, "temperature_units", printOutMode) && confirmValidTemperatureUnit(value, printOutMode))
     temperature_units = value.charAt(0);
+  else if (validKey(key, "heat_wave_temperature", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    heat_wave_temperature = processConfigInt(key,value);
+  else if (validKey(key, "heat_wave_hours_to_log", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    heat_wave_hours_to_log = processConfigInt(key,value);
+  else if (validKey(key, "heat_wave_days_to_log", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    heat_wave_days_to_log = processConfigInt(key,value);
   else if (validKey(key, "inside_thermistor_B", printOutMode) && confirmValidNum(value,false,true, printOutMode))
     inside_thermistor_B = processConfigFloat(key,value);
   else if (validKey(key, "inside_thermistor_T0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
@@ -371,6 +388,10 @@ void logMessage(String message) {
     writeSdFile(getTimeStampString() + "-" + message, logFileName);
 }
 
+void logHeatWave(String message) {
+  writeSdFile(getTimeStampString() + "-" + message, heatWaveFileName);
+}
+
 void printHelp() {
   Serial.println("Acceptable commands via the Serial Monitor");
   Serial.println("If you omit the ; it will wait a second before processing");
@@ -382,8 +403,8 @@ void printHelp() {
   Serial.println("l; Read all data from log file");
   Serial.println("cY; Remove all data from log file");
   Serial.println("f; Print all the files and folders in base dir");
-  Serial.println("TValue; Set internal time to Value (given as unix timestamp)");
-  Serial.println("t; Print currently set date/time to Serial");
+  Serial.println("TValue; Set RTC time to Value (given as unix timestamp)");
+  Serial.println("t; Print currently set RTC date/time to Serial");
   Serial.println("m[ewsf][ud]; Test run a specific motor (east, west, shutters or fans). East and West require a specific direction (up or down)"); 
   Serial.println("a; Check all sensors and log their values");
   Serial.println("b; Begin running the high tunnel temperature control program");
@@ -475,8 +496,8 @@ void readAllSensors () {
   limitSwitchHit ("Down", "East", true);
   limitSwitchHit ("Up", "West", true);
   limitSwitchHit ("Down", "West", true);
-  getTempFromSensor ("inside");
-  getTempFromSensor ("outside");
+  getTempFromSensor ("inside", true);
+  getTempFromSensor ("outside", true);
   checkBatteryLevel();
 }
 ////////////////////////End Log and Serial Interface Functions////////////////////////
@@ -497,8 +518,8 @@ void setTimeFromSerialPort(String inputString) {
   parsedTime = inputString.toInt();
   // Only set time if it is in a reasonable time range (between 2015 and 2030)
   if(parsedTime > MIN_ALLOWABLE_DATE_TIME && parsedTime < MAX_ALLOWABLE_DATE_TIME) {
-    logMessage("Updating time.  Current gmt offset is " + String(gmt_hour_offset));
-    setTime(parsedTime);
+    logMessage("Updating time.");
+    rtc.adjust(parsedTime + gmt_hour_offset * SECONDS_IN_HOUR);
     logMessage("Time set");
   }
   else {
@@ -510,6 +531,7 @@ void timeHelp ()
 {
   Serial.println();
   Serial.println("-----How to set the time-----");
+  Serial.println("NOTE: The RTC should keep the time unless its battery dies, if so replace it and reset the time");
   Serial.println("Get current unix timestamp (also called Epoch time, meaning seconds since Jan 1 1970)");
   Serial.println("On a mac or unix system simply type date +%s into the terminal");
   Serial.println("http://www.epochconverter.com/ also has it");
@@ -517,7 +539,6 @@ void timeHelp ()
   Serial.println("Example: T1420156799; is 1 second before Jan 1 2015 GMT");
   Serial.println("NOTE: Program will only accept times between Jan 1 2015 through 2029 GMT");
   Serial.println("NOTE 2: Unix time is always in GMT, program will offset it using timezone_offset found in " + String(configFileName) + " on SD card");
-  Serial.println("NOTE 3: If you do not set clock it will start at Jan 1 1999 so the log can track relative times");
 }
 
 // Pad the left size of a string with supplied character until it reaches padLength
@@ -544,19 +565,9 @@ String zeroPad (int intToZeroPad, int padLength)
 // Get timestamp in MM/DD/YYYY hh:mm:ss format
 String getTimeStampString() {
   String timeStamp;
-  if (timeStatus() == timeNotSet) {
-    logError("Time status is timeNotSet, this should never be");
-    return "ERROR: UNSET TIME";
-  }
-  // offset time using gmt_hour_offset
-  adjustTime(gmt_hour_offset * SECONDS_IN_HOUR);
-  timeStamp = zeroPad(month(),2) + "/" + zeroPad(day(),2) + "/" + zeroPad(year(),4) + " ";
-  timeStamp += zeroPad(hour(),2) + ":" + zeroPad(minute(),2) + ":" + zeroPad(second(),2);
-  // return time to non-offset mode to keep it a true timezone free Epoch
-  // If this leads to the time getting off faster we can remove it and just set
-  // epoch with the offset once and leave it, but that means that if you ever output
-  // an epoch timestamp it won't be set to GMT as it should be.
-  adjustTime(gmt_hour_offset * SECONDS_IN_HOUR * -1);
+  DateTime time = rtc.now();
+  timeStamp = zeroPad(time.month(),2) + "/" + zeroPad(time.day(),2) + "/" + zeroPad(time.year(),4) + " ";
+  timeStamp += zeroPad(time.hour(),2) + ":" + zeroPad(time.minute(),2) + ":" + zeroPad(time.second(),2);
   return timeStamp;
 }
 //////////////////////// End Time and logging Functions ////////////////////////
@@ -595,14 +606,27 @@ boolean limitSwitchHit (String rollDirection, String rollSide, boolean logWhenLi
 }
 
 // TODO: confirm that this code works with the actual sensors and their input values
-float getTempFromSensor (String insideOrOutside) {
-  float sensorRead;
+float getTempFromSensor (String insideOrOutside, boolean disableManualEntry) {  
+  float temperature=-9999.0;
+  if (manual_sensor_entry_mode && !disableManualEntry) {
+    Serial.println("manual_sensor_entry_mode is set to true so you must manually enter a temperature value");
+    while (temperature == -9999.0) {
+      Serial.println("Enter the " + insideOrOutside + " temperature in " + String(temperature_units) + " as a decimal value followed by a semicolon. exe. 73.2;");
+      String inputValue = Serial.readStringUntil(';');
+      if (confirmValidNum(inputValue, true, true, false))
+        temperature = inputValue.toFloat();
+    }
+    logMessage("The " + insideOrOutside + " temperature sensor has a manually entered temperature of " + temperature + " " + String(temperature_units));
+    return temperature;
+  }
+
   // initialize to outside and reset to inside if needed
   float thermistor_B = outside_thermistor_B;
   float thermistor_T0 = outside_thermistor_T0;
   float thermistor_R0 = outside_thermistor_R0;
   float thermistor_R_Balance = outside_thermistor_R_Balance;
-
+  float sensorRead;
+  
   if (insideOrOutside == "inside") {
     sensorRead = analogRead(inside_temp_sensor_pin);
     thermistor_B = inside_thermistor_B;
@@ -615,32 +639,12 @@ float getTempFromSensor (String insideOrOutside) {
   
   // Temperature conversion code adapted from http://playground.arduino.cc/ComponentLib/Thermistor2
   float thermistor_R=thermistor_R_Balance*(1024.0f/sensorRead-1);
-  float temperature=1.0f/(1.0f/thermistor_T0+(1.0f/thermistor_B)*log(thermistor_R/thermistor_R0)) - 273.15;
+  temperature=1.0f/(1.0f/thermistor_T0+(1.0f/thermistor_B)*log(thermistor_R/thermistor_R0)) - 273.15;
   // Convert Celcius to Fahrenheit if set to F
   if (temperature_units == 'F')
       temperature = (temperature * 9.0)/ 5.0 + 32.0;
   logMessage("The " + insideOrOutside + " temperature sensor has a digital value of " + sensorRead + " which is " + temperature + " " + String(temperature_units));
   return temperature;
-}
-
-float getCurrentTempDelta() {
-  float deltaTemp=-9999.0;
-  if (manual_sensor_entry_mode) {
-    Serial.println("manual_sensor_entry_mode is set to true so you must manually enter a temperature value");
-    while (deltaTemp == -9999.0) {
-      Serial.println("Enter inside temp - outside temp (in " + String(temperature_units) + ") as a decimal value followed by a semicolon. eve. 3.2;");
-      String inputValue = Serial.readStringUntil(';');
-      if (confirmValidNum(inputValue, true, true, false))
-        deltaTemp = inputValue.toFloat();
-    }
-  }
-  else {
-    float insideTemp = getTempFromSensor ("inside");
-    float outsideTemp = getTempFromSensor ("outside");
-    deltaTemp = insideTemp - outsideTemp;
-    logMessage ("Temp Reading in " + String(temperature_units) + ". Inside=" + String(insideTemp)  + " Outside=" + String(outsideTemp) + " Diff=" + deltaTemp);
-  }
-  return deltaTemp;
 }
 
 int checkSolarLevel () {
@@ -673,7 +677,13 @@ String getTunnelStatus () {
   // Check all sensors, solar level is currently just logged and not used for any logic
   checkSolarLevel();
   int batteryLevel = checkBatteryLevel();
-  float tempDelta = getCurrentTempDelta();
+  float insideTemp = getTempFromSensor ("inside", false);
+  float outsideTemp = getTempFromSensor ("outside", false);
+  float tempDelta = insideTemp - outsideTemp;
+  
+  checkForHeatWave(insideTemp);
+  // Todo, add code to intentially create a heatwave when desired
+  
   if (batteryLevel < battery_low_power_reading)
     return "Low Power";
   if (tempDelta > way_too_hot_delta)
@@ -685,6 +695,44 @@ String getTunnelStatus () {
   if (tempDelta < too_cool_delta)
     return "Too Cool";
   return "Just Right";
+}
+
+void logHeatWaveDataAndResetVariables (){
+  if (heatWaveHoursSurpassedToday) {
+    logHeatWave("HEATWAVE HOURS: Over " + String(heat_wave_temperature) + " F continuously for " + String(heat_wave_hours_to_log) + " hours or more");
+    heatWaveDaysInARow++;
+    if (heatWaveDaysInARow >= heat_wave_days_to_log) {
+      logHeatWave("HEATWAVE DAYS: The heatwave has continued for " + String(heatWaveDaysInARow) + " days");
+      // TODO check to see if we should not reset heatWaveDaysInARow here and instead let it keep running up.
+      // Exe. if it is hot for 6 days in a row does that count as 2 3 day heatwaves? If it is hot for 4 days what do we log?
+      heatWaveDaysInARow = 0;
+    }
+  }
+  else {
+    heatWaveDaysInARow = 0;
+    if (heatWaveTempSurpassedToday)
+      logHeatWave("HEATWAVE MOMENT: It reached " + String(heat_wave_temperature) + " F for a moment today but not long enough to count as a heatwave day");
+  }
+  heatWaveHoursSurpassedToday = false;
+  heatWaveTempSurpassedToday = false;
+  heatWaveVarsResetDay = rtc.now().day();
+}
+
+void checkForHeatWave (float insideTemp) {
+  // Every time we reach a new day log the previous days heat wave results and reset the heat wave variables
+  if (rtc.now().day() != heatWaveVarsResetDay)
+    logHeatWaveDataAndResetVariables();
+  if (insideTemp > heat_wave_temperature) {
+    heatWaveTempSurpassedToday = true;
+    if (heatWaveRequiredEndTime == 0)
+      heatWaveRequiredEndTime = rtc.now().hour()*60*60 + rtc.now().minute()*60 + rtc.now().second() + heat_wave_hours_to_log*SECONDS_IN_HOUR;
+    else if (rtc.now().hour()*60*60 + rtc.now().minute()*60 + rtc.now().second() > heatWaveRequiredEndTime)
+        heatWaveHoursSurpassedToday = true;
+  }
+  else {
+    // If temp drops back down reset the heatWaveRequiredEndTime. TODO: Confirm that you should do this
+    heatWaveRequiredEndTime = 0;
+  }
 }
 ////////////////////////End High Tunnel Sensor Functions////////////////////////
 
@@ -843,22 +891,30 @@ void setDigitalPinModes () {
 }
 
 void setup(){
-  Serial.begin(9600);
+  Serial.begin(57600);
   wf.begin();
-  delay(1000);
+  if (! rtc.begin())
+    Serial.println("ERROR: Couldn't find RTC (DS1307 Real Time Clock)");
+
+  if (! rtc.isrunning()) {
+    Serial.println("RTC is NOT running!");
+    // following line sets the RTC to the date & time this sketch was compiled
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    // This line sets the RTC with an explicit date & time, for example to set
+    // January 21, 2014 at 3am you would call:
+    // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
+  }
+  delay(500);
 
   setupSdCard();
-  setTime(UNSET_TIME_DEFAULT);
   ensureLogFileExists();
-  logMessage("Time initialized at startup.  Reset Manaually ASAP!");
   readConfigFromFile();
-  timeHelp();
   Serial.println();
   printHelp();
   setDigitalPinModes();
 }
 
-void loop(){
+void loop() {
   char incomingByte;
   if (automatically_start_high_tunnel_control)
     processSerialInput('b');
