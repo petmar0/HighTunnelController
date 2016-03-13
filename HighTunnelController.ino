@@ -8,9 +8,9 @@
 const unsigned long MIN_ALLOWABLE_DATE_TIME = 1420156799; // 1 second before Jan 1 2015 GMT
 const unsigned long MAX_ALLOWABLE_DATE_TIME = 1893520800; // Jan 1 2030 GMT
 const unsigned long SECONDS_IN_HOUR         = 3600;
-char configFileName[] = "live.cfg"; //recommended to leave this set and rename a different file as live.cfg to update it
-char logFileName[] = "live.log"; //recommended to leave this set.  Multiple log files will be spun off as we go.
-char heatWaveFileName[] = "heat.log"; //recommended to leave this set. This is where heatwave data is logged explicitly.
+char configFileName[] = "live.cfg"; // recommended to leave this set and rename a different file as live.cfg to update it
+char logFileName[] = "live.log"; // recommended to leave this set.  Multiple log files will be spun off as we go.
+char heatWaveFileName[] = "heat.log"; // recommended to leave this set. This is where heatwave data is logged explicitly.
 
 // External variables that can be passed in via config file
 int gmt_hour_offset = -5; // -5 is the EST offset
@@ -19,13 +19,17 @@ float way_too_hot_delta = 7.5; // If difference between inside and outside temp 
 float too_cool_delta = 4.0; // If difference between inside and outside temp is less than this start to warm
 float super_cool_delta = -1.0; // If difference between inside and outside temp is less than this and warm up inside using outside air
 boolean disable_log_file = false; // setting this to true disables writing to log file. Can help debug memory card issues
-boolean manual_sensor_entry_mode = true; //If true then read sensors from Serial input by user instead of actual sensors.  Used to test system.
-char temperature_units = 'F'; //Set ot F for Farenheight of C for Celcius.  If you change this you should probably change the deltas too.
-int heat_wave_temperature = 90; //Temperature at which tunnel is considered a heatwave. WARNING if you update temperature units to C you MUST update this as well
-int heat_wave_hours_to_log = 6; //How many consecutive hours temp must be above heat_wave_temperature to count as a heat wave day
-int heat_wave_days_to_log = 3; //How many consecutive heat wave days must happen to count as a heat wave
-int inside_temp_sensor_pin = A0; //Analog pin that temperature sensor inside the high tunnel is connected to
-int outside_temp_sensor_pin = A1; //Analog pin that temperature sensor outside the high tunnel is connected to
+boolean manual_sensor_entry_mode = true; // If true then read sensors from Serial input by user instead of actual sensors.  Used to test system.
+char temperature_units = 'F'; // Set ot F for Farenheight of C for Celcius.  If you change this you should probably change the deltas too.
+int heat_wave_temperature = 90; // Temperature at which tunnel is considered a heatwave. WARNING if you update temperature units to C you MUST update this as well
+int heat_wave_enabled_warming_temperature = 95; // When heat wave is enabled keep warming tunnel till it hits this. Should be enough above heat_wave_temperature to ensure it doesm't cool down below it
+int heat_wave_enabled_cooling_temperature = 99; // When heat wave is enabled cool if tunnel gets above this. If outside is hot the keep up with that temp instead
+int heat_wave_hours_to_log = 6; // How many consecutive hours temp must be above heat_wave_temperature to count as a heat wave day
+int heat_wave_days_to_log = 3; // How many consecutive heat wave days must happen to count as a heat wave
+// TODO update heat_wave_switch_pin 
+int heat_wave_switch_pin = 9; // Pin the switch to enable heat wave mode is connected to
+int inside_temp_sensor_pin = A0; // Analog pin that temperature sensor inside the high tunnel is connected to
+int outside_temp_sensor_pin = A1; // Analog pin that temperature sensor outside the high tunnel is connected to
 float inside_thermistor_B = 1.0; // Thermistor B parameter - found in datasheet 
 float inside_thermistor_T0 = 1.0; // Manufacturer T0 parameter - found in datasheet (kelvin)
 float inside_thermistor_R0 = 1.0; // Manufacturer R0 parameter - found in datasheet (ohms)
@@ -36,32 +40,32 @@ float outside_thermistor_R0 = 1.0; // Manufacturer R0 parameter - found in datas
 float outside_thermistor_R_Balance = 1.0; // Your balance resistor resistance in ohms
 unsigned long millisecond_delay_between_actions = 10000; // How long to wait between reading temperature and taking action to correct it
 unsigned long millisecond_delay_low_power = 110000; // When battery is low add this to millisecond_delay_between_actions to slow down power consumption
-int alarm_before_winch_roll_seconds = 3; //How long to sound alarm buzzer for before rolling sides (alarm buzzer should be connected to direction relays)
-int winch_roll_seconds = 3; //How many seconds to roll each winch at a time
+int alarm_before_winch_roll_seconds = 3; // How long to sound alarm buzzer for before rolling sides (alarm buzzer should be connected to direction relays)
+int winch_roll_seconds = 3; // How many seconds to roll each winch at a time
 int winch_roll_milliseconds_between_limit_check = 100; // How long to wait between checking limit sensors while rolling
-int fan_run_seconds = 3; //How how long to run fans at a stretch
-int east_winch_roll_direction_digital_pin = 4; //Digital pin that sets direction east winch will roll, also sounds alarm when powered up
-int east_winch_roll_power_digital_pin = 5; //Digital pin that causes east winch to start rolling
-int west_winch_roll_direction_digital_pin = 6; //Digital pin that sets direction west winch will roll, also sounds alarm when powered up
-int west_winch_roll_power_digital_pin = 7; //Digital pin that causes west winch to start rolling
-int east_winch_top_limit_pin = A7; //Analog pin that connects to top limit sensor for east winch
-int east_winch_bottom_limit_pin = A6; //Analog pin that connects to bottom limit sensor for east winch
-int west_winch_top_limit_pin = A5; //Analog pin that connects to top limit sensor for west winch
-int west_winch_bottom_limit_pin = A4; //Analog pin that connects to bottom limit sensor for west winch
-int shutters_direction_digital_pin = 2; //Digital pin that controls whether shutters open or close
-int shutters_power_digital_pin = 3; //Digital pin that powers shutters to move open or closed
-int fan_power_digital_pin = 10; //Digital pin that powers up the fans to spin
-int battery_sensor_pin = A2; //Analog pin that senses how much power is left in battery
-int solar_sensor_pin = A3; //Analog pin that senses how much power the solar panel is delivering
+int fan_run_seconds = 3; // How how long to run fans at a stretch
+int east_winch_roll_direction_digital_pin = 4; // Digital pin that sets direction east winch will roll, also sounds alarm when powered up
+int east_winch_roll_power_digital_pin = 5; // Digital pin that causes east winch to start rolling
+int west_winch_roll_direction_digital_pin = 6; // Digital pin that sets direction west winch will roll, also sounds alarm when powered up
+int west_winch_roll_power_digital_pin = 7; // Digital pin that causes west winch to start rolling
+int east_winch_top_limit_pin = A7; // Analog pin that connects to top limit sensor for east winch
+int east_winch_bottom_limit_pin = A6; // Analog pin that connects to bottom limit sensor for east winch
+int west_winch_top_limit_pin = A5; // Analog pin that connects to top limit sensor for west winch
+int west_winch_bottom_limit_pin = A4; // Analog pin that connects to bottom limit sensor for west winch
+int shutters_direction_digital_pin = 2; // Digital pin that controls whether shutters open or close
+int shutters_power_digital_pin = 3; // Digital pin that powers shutters to move open or closed
+int fan_power_digital_pin = 10; // Digital pin that powers up the fans to spin
+int battery_sensor_pin = A2; // Analog pin that senses how much power is left in battery
+int solar_sensor_pin = A3; // Analog pin that senses how much power the solar panel is delivering
 // TODO figure out what an actual sensible reading for battery_low_power_reading is
-int battery_low_power_reading = 512; //Reading below which battery is considered to be at Low power 
-boolean automatically_start_high_tunnel_control = false; //Set this to true so that upon restart the high tunnel control program automatically runs
+int battery_low_power_reading = 512; // Reading below which battery is considered to be at Low power
+boolean automatically_start_high_tunnel_control = false; // Set this to true so that upon restart the high tunnel control program automatically runs
 
 // Internal variables that the program manages itself
 boolean sdCardWorking = false;
 boolean logFileWorking = false;
-boolean runFansNext = true; //Used to alternate between running fans and rolling sides
-boolean shuttersOpen = false; //Used to track shutter status
+boolean runFansNext = true; // Used to alternate between running fans and rolling sides
+boolean shuttersOpen = false; // Used to track shutter status
 int heatWaveRequiredEndTime = 0; // Store the hour/minute when you'll know a heatwave has lasted long enough to be counted for the day
 boolean heatWaveTempSurpassedToday = false; // If we ever go above heat wave temp for a moment today note it
 boolean heatWaveHoursSurpassedToday = false; // If it has stayed above heat_wave_temperature for heat_wave_hours_to_log then note it
@@ -70,7 +74,6 @@ int heatWaveVarsResetDay = 0; // Note the last day that heatwave vars were reset
 WildFire wf;
 RTC_DS1307 rtc;
 
-// TODO add heatwave maintaining code NEED pin for heatwave switch from Pete
 // TODO add code to convert solar panel and battery readings to voltages NEED to get conversion details from Pete
 // NEED temp sensor variables from Pete
 
@@ -182,6 +185,10 @@ void processKeyValuePair(String key, String value, boolean printOutMode) {
     temperature_units = value.charAt(0);
   else if (validKey(key, "heat_wave_temperature", printOutMode) && confirmValidNum(value,false,false, printOutMode))
     heat_wave_temperature = processConfigInt(key,value);
+  else if (validKey(key, "heat_wave_enabled_warming_temperature", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    heat_wave_enabled_warming_temperature = processConfigInt(key,value);
+  else if (validKey(key, "heat_wave_enabled_cooling_temperature", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    heat_wave_enabled_cooling_temperature = processConfigInt(key,value);
   else if (validKey(key, "heat_wave_hours_to_log", printOutMode) && confirmValidNum(value,false,false, printOutMode))
     heat_wave_hours_to_log = processConfigInt(key,value);
   else if (validKey(key, "heat_wave_days_to_log", printOutMode) && confirmValidNum(value,false,false, printOutMode))
@@ -534,7 +541,7 @@ void timeHelp ()
   Serial.println("NOTE: The RTC should keep the time unless its battery dies, if so replace it and reset the time");
   Serial.println("Get current unix timestamp (also called Epoch time, meaning seconds since Jan 1 1970)");
   Serial.println("On a mac or unix system simply type date +%s into the terminal");
-  Serial.println("http://www.epochconverter.com/ also has it");
+  Serial.println("http:// www.epochconverter.com/ also has it");
   Serial.println("Then enter it into Serial Monitor prefaced by a T and followed by a ;");
   Serial.println("Example: T1420156799; is 1 second before Jan 1 2015 GMT");
   Serial.println("NOTE: Program will only accept times between Jan 1 2015 through 2029 GMT");
@@ -570,7 +577,7 @@ String getTimeStampString() {
   timeStamp += zeroPad(time.hour(),2) + ":" + zeroPad(time.minute(),2) + ":" + zeroPad(time.second(),2);
   return timeStamp;
 }
-//////////////////////// End Time and logging Functions ////////////////////////
+////////////////////////End Time and logging Functions////////////////////////
 
 ////////////////////////Start High Tunnel Sensor Functions////////////////////////
 boolean limitSwitchHit (String rollDirection, String rollSide, boolean logWhenLimitIsNotHit) {
@@ -593,7 +600,7 @@ boolean limitSwitchHit (String rollDirection, String rollSide, boolean logWhenLi
   int limitSwitchVal = analogRead(limitSwitchId);
   // TODO test these values with the real switches and make sure they work
   // TODO If we need to save on analog pins we can connect multiple switches to a single analog pin
-  // see code here http://forum.arduino.cc/index.php?topic=20125.0
+  // see code here http:// forum.arduino.cc/index.php?topic=20125.0
   if (limitSwitchVal > 500 and limitSwitchVal < 1023) {
     logMessage(rollSide + " " + rollDirection + " limit switch hit!");
     return true;
@@ -637,7 +644,7 @@ float getTempFromSensor (String insideOrOutside, boolean disableManualEntry) {
   else 
     sensorRead = analogRead(outside_temp_sensor_pin);
   
-  // Temperature conversion code adapted from http://playground.arduino.cc/ComponentLib/Thermistor2
+  // Temperature conversion code adapted from http:// playground.arduino.cc/ComponentLib/Thermistor2
   float thermistor_R=thermistor_R_Balance*(1024.0f/sensorRead-1);
   temperature=1.0f/(1.0f/thermistor_T0+(1.0f/thermistor_B)*log(thermistor_R/thermistor_R0)) - 273.15;
   // Convert Celcius to Fahrenheit if set to F
@@ -650,7 +657,7 @@ float getTempFromSensor (String insideOrOutside, boolean disableManualEntry) {
 int checkSolarLevel () {
   // NOTE: solarReading is not currently used for anything other than logging so no need to allow manual entry of it
   int solarReading = analogRead(solar_sensor_pin);
-  //TODO add code that converts this number into an easier to understand voltage
+  // TODO add code that converts this number into an easier to understand voltage
   logMessage("Solar panel output at " + String(solarReading));
   return solarReading;
 }
@@ -668,7 +675,7 @@ int checkBatteryLevel() {
   }
   else
     batteryReading = analogRead(battery_sensor_pin);
-  //TODO add code that converts batteryReading into an easier to understand voltage or percent of charge value
+  // TODO add code that converts batteryReading into an easier to understand voltage or percent of charge value
   logMessage("Battery level at " + String(batteryReading));
   return batteryReading;
 }
@@ -682,22 +689,39 @@ String getTunnelStatus () {
   float tempDelta = insideTemp - outsideTemp;
   
   checkForHeatWave(insideTemp);
-  // Todo, add code to intentially create a heatwave when desired
-  
+
+  // check low power and super cool first because they act the samme whether artificial heat wave is enabled or not
   if (batteryLevel < battery_low_power_reading)
     return "Low Power";
+  if (tempDelta < super_cool_delta)
+    return "Super Cool";
+    
+  if (isArtificialHeatWaveEnabled()) {
+    if (insideTemp <= heat_wave_enabled_warming_temperature)
+      return "Too Cool";
+    if (tempDelta > too_hot_delta && insideTemp > heat_wave_enabled_cooling_temperature)
+      return "Too Hot";
+    // If an artificial heat wave is enabled we never want to cool aggressively so never return Way Too Hot
+    return "Just Right";
+  }
+  
   if (tempDelta > way_too_hot_delta)
     return "Way Too Hot";
   if (tempDelta > too_hot_delta)
     return "Too Hot";
-  if (tempDelta < super_cool_delta)
-    return "Super Cool";
   if (tempDelta < too_cool_delta)
     return "Too Cool";
   return "Just Right";
 }
 
-void logHeatWaveDataAndResetVariables (){
+boolean isArtificialHeatWaveEnabled () {
+  if (digitalRead(heat_wave_switch_pin) == HIGH) {
+    logMessage("Heatwave enabled");
+    return true;
+  }
+  return false;
+}
+void logHeatWaveDataAndResetVariables () {
   if (heatWaveHoursSurpassedToday) {
     logHeatWave("HEATWAVE HOURS: Over " + String(heat_wave_temperature) + " F continuously for " + String(heat_wave_hours_to_log) + " hours or more");
     heatWaveDaysInARow++;
@@ -719,7 +743,7 @@ void logHeatWaveDataAndResetVariables (){
 }
 
 void checkForHeatWave (float insideTemp) {
-  // Every time we reach a new day log the previous days heat wave results and reset the heat wave variables
+  // Every time we reach a new day log the previous day's heat wave results and reset the heat wave variables
   if (rtc.now().day() != heatWaveVarsResetDay)
     logHeatWaveDataAndResetVariables();
   if (insideTemp > heat_wave_temperature) {
@@ -877,7 +901,7 @@ void runFans() {
   if (winch_roll_seconds > 0)
     runFansNext = false;
 }
-//////////////////////// End High Tunnel Control State Functions ////////////////////////
+////////////////////////End High Tunnel Control State Functions////////////////////////
 
 // Configure digital output pins as such
 void setDigitalPinModes () {
@@ -888,6 +912,7 @@ void setDigitalPinModes () {
   pinMode(shutters_direction_digital_pin, OUTPUT);
   pinMode(shutters_power_digital_pin, OUTPUT);
   pinMode(fan_power_digital_pin, OUTPUT);
+  pinMode(heat_wave_switch_pin, INPUT);
 }
 
 void setup(){
