@@ -63,7 +63,6 @@ boolean automatically_start_high_tunnel_control = false; // Set this to true so 
 
 // Internal variables that the program manages itself
 boolean sdCardWorking = false;
-boolean logFileWorking = false;
 boolean runFansNext = true; // Used to alternate between running fans and rolling sides
 boolean shuttersOpen = false; // Used to track shutter status
 int heatWaveRequiredEndTime = 0; // Store the hour/minute when you'll know a heatwave has lasted long enough to be counted for the day
@@ -90,25 +89,21 @@ void setupSdCard() {
   }
 }
 
-void ensureLogFileExists () {
-  Serial.println("Ensuring log file exists on SD Card.  Filename=" + String(logFileName));
-  File myFile = SD.open(logFileName, FILE_READ);
+void ensureLogFileExists (char sdFileName[]) {
+  Serial.println("Ensuring file exists on SD Card.  Filename=" + String(sdFileName));
+  File myFile = SD.open(sdFileName, FILE_READ);
   if (myFile) {
     myFile.close();
-    logMessage("Log File found");
+    logMessage("File found: " + String(sdFileName));
   }
   else {
-    logFileWorking = false;
-    logMessage("Log File not found");
-    writeSdFile("Initializing Log File", logFileName);
+    logMessage("File not found: " + String(sdFileName));
+    writeSdFile("Initializing File: " + String(sdFileName), sdFileName);
   }
-  myFile = SD.open(logFileName, FILE_READ);
-  if (myFile)
-    logFileWorking = true;
-  else {
-    logFileWorking = false;
-    logError("Problem creating log file");
-  }
+  myFile = SD.open(sdFileName, FILE_READ);
+  if (!myFile)
+    logError("Problem creating file: " + String(sdFileName));
+  myFile.close();
 }
 
 void readConfigFromFile () {
@@ -498,14 +493,15 @@ void testMotors (String inputString) {
 }
 
 void readAllSensors () {
-  checkSolarLevel ();
   limitSwitchHit ("Up", "East", true);
   limitSwitchHit ("Down", "East", true);
   limitSwitchHit ("Up", "West", true);
   limitSwitchHit ("Down", "West", true);
   getTempFromSensor ("inside", true);
   getTempFromSensor ("outside", true);
+  checkSolarLevel ();
   checkBatteryLevel();
+  isArtificialHeatWaveEnabled();
 }
 ////////////////////////End Log and Serial Interface Functions////////////////////////
 
@@ -932,7 +928,8 @@ void setup(){
   delay(500);
 
   setupSdCard();
-  ensureLogFileExists();
+  ensureLogFileExists(logFileName);
+  ensureLogFileExists(heatWaveFileName);
   readConfigFromFile();
   Serial.println();
   printHelp();
