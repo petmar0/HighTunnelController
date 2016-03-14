@@ -26,8 +26,11 @@ int heat_wave_enabled_warming_temperature = 95; // When heat wave is enabled kee
 int heat_wave_enabled_cooling_temperature = 99; // When heat wave is enabled cool if tunnel gets above this. If outside is hot the keep up with that temp instead
 int heat_wave_hours_to_log = 6; // How many consecutive hours temp must be above heat_wave_temperature to count as a heat wave day
 int heat_wave_days_to_log = 3; // How many consecutive heat wave days must happen to count as a heat wave
-// TODO update heat_wave_switch_pin 
+// TODO update heat_wave_switch_pin and pir_sensor_pin
 int heat_wave_switch_pin = 9; // Pin the switch to enable heat wave mode is connected to
+int pir_sensor_pin = 8; // Pin that PIR motion sensors that ensure no one is around while sides roll are connected to.
+int pir_wait_time_max_seconds = 60; //If PIR sensors detect someone this is how long we'll wait before we give up and accept that we cannot roll
+int pir_milliseconds_between_checks = 5000; //How long to wait between sampling the PIR sensors again when someone is detected
 int inside_temp_sensor_pin = A0; // Analog pin that temperature sensor inside the high tunnel is connected to
 int outside_temp_sensor_pin = A1; // Analog pin that temperature sensor outside the high tunnel is connected to
 float inside_thermistor_B = 1.0; // Thermistor B parameter - found in datasheet 
@@ -188,6 +191,14 @@ void processKeyValuePair(String key, String value, boolean printOutMode) {
     heat_wave_hours_to_log = processConfigInt(key,value);
   else if (validKey(key, "heat_wave_days_to_log", printOutMode) && confirmValidNum(value,false,false, printOutMode))
     heat_wave_days_to_log = processConfigInt(key,value);
+  else if (validKey(key, "heat_wave_switch_pin", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    heat_wave_switch_pin = processConfigInt(key,value);
+  else if (validKey(key, "pir_sensor_pin", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    pir_sensor_pin = processConfigInt(key,value);
+  else if (validKey(key, "pir_wait_time_max_seconds", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    pir_wait_time_max_seconds = processConfigInt(key,value);
+  else if (validKey(key, "pir_milliseconds_between_checks", printOutMode) && confirmValidNum(value,false,false, printOutMode))
+    pir_milliseconds_between_checks = processConfigInt(key,value);    
   else if (validKey(key, "inside_thermistor_B", printOutMode) && confirmValidNum(value,false,true, printOutMode))
     inside_thermistor_B = processConfigFloat(key,value);
   else if (validKey(key, "inside_thermistor_T0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
@@ -501,7 +512,8 @@ void readAllSensors () {
   getTempFromSensor ("outside", true);
   checkSolarLevel ();
   checkBatteryLevel();
-  isArtificialHeatWaveEnabled();
+  isHeatWaveSwitchOn();
+  isPersonNearRollers();
 }
 ////////////////////////End Log and Serial Interface Functions////////////////////////
 
@@ -676,6 +688,23 @@ int checkBatteryLevel() {
   return batteryReading;
 }
 
+// TODO confirm that High means person detected
+boolean isPersonNearRollers() {
+  int millisecondsWaited = 0;
+  while (millisecondsWaited <= pir_wait_time_max_seconds*1000 && digitalRead(pir_sensor_pin) == HIGH) {
+    delay (pir_milliseconds_between_checks);
+    millisecondsWaited += pir_milliseconds_between_checks;
+    logMessage("PIR Sensors have detected someone near the rollers! Will check again shortly");
+  }
+
+  // It doesn't make sense to manually set The PIR sensors value so we won't worry about manual_sensor_entry_mode for them
+  if (digitalRead(pir_sensor_pin) == HIGH) {
+    logMessage("PIR Sensors have detected someone near the rollers consistently, accepting that this will not change and moving on.");
+    return true;
+  }
+  return false;
+}
+
 String getTunnelStatus () {
   // Check all sensors, solar level is currently just logged and not used for any logic
   checkSolarLevel();
@@ -711,12 +740,23 @@ String getTunnelStatus () {
 }
 
 boolean isArtificialHeatWaveEnabled () {
-  if (digitalRead(heat_wave_switch_pin) == HIGH) {
+  if (isHeatWaveSwitchOn()) {
     logMessage("Heatwave enabled");
+    return true;
+  }
+  // TODO add code that reads and uses heatwave calendar entries from SD card
+  return false;
+}
+
+boolean isHeatWaveSwitchOn () {
+  // The heatwave switch is simple enough we won't worry about manual_sensor_entry_mode for it
+  if (digitalRead(heat_wave_switch_pin) == HIGH) {
+    logMessage("Heatwave switch set to on");
     return true;
   }
   return false;
 }
+
 void logHeatWaveDataAndResetVariables () {
   if (heatWaveHoursSurpassedToday) {
     logHeatWave("HEATWAVE HOURS: Over " + String(heat_wave_temperature) + " F continuously for " + String(heat_wave_hours_to_log) + " hours or more");
@@ -845,11 +885,12 @@ void rollSide (String rollDirection, String rollSide) {
     rollPowerPin = west_winch_roll_power_digital_pin;
   
   logMessage("Starting to roll " + rollSide + " side " + rollDirection);
-  if (!limitSwitchHit(rollDirection, rollSide, false)) {
+    
+  if (!limitSwitchHit(rollDirection, rollSide, false) && !isPersonNearRollers()) {
     digitalWrite(rollPowerPin, HIGH);
   }
   
-  while (millisecondsRolling <= winch_roll_seconds*1000 && !limitSwitchHit(rollDirection, rollSide, false)) {
+  while (millisecondsRolling <= winch_roll_seconds*1000 && !limitSwitchHit(rollDirection, rollSide, false) && !isPersonNearRollers()) {
     delay (winch_roll_milliseconds_between_limit_check);
     millisecondsRolling += winch_roll_milliseconds_between_limit_check;
   }
@@ -909,6 +950,7 @@ void setDigitalPinModes () {
   pinMode(shutters_power_digital_pin, OUTPUT);
   pinMode(fan_power_digital_pin, OUTPUT);
   pinMode(heat_wave_switch_pin, INPUT);
+  pinMode(pir_sensor_pin, INPUT);
 }
 
 void setup(){
