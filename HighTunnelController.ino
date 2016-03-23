@@ -19,7 +19,7 @@ float way_too_hot_delta = 7.5; // If difference between inside and outside temp 
 float too_cool_delta = 4.0; // If difference between inside and outside temp is less than this start to warm
 float super_cool_delta = -1.0; // If difference between inside and outside temp is less than this and warm up inside using outside air
 boolean disable_log_file = false; // setting this to true disables writing to log file. Can help debug memory card issues
-boolean manual_sensor_entry_mode = true; // If true then read sensors from Serial input by user instead of actual sensors.  Used to test system.
+boolean manual_sensor_entry_mode = false; // If true then read sensors from Serial input by user instead of actual sensors.  Used to test system.
 char temperature_units = 'F'; // Set ot F for Farenheight of C for Celcius.  If you change this you should probably change the deltas too.
 int heat_wave_temperature = 90; // Temperature at which tunnel is considered a heatwave. WARNING if you update temperature units to C you MUST update this as well
 int heat_wave_enabled_warming_temperature = 95; // When heat wave is enabled keep warming tunnel till it hits this. Should be enough above heat_wave_temperature to ensure it doesm't cool down below it
@@ -31,8 +31,8 @@ int heat_wave_switch_pin = 9; // Pin the switch to enable heat wave mode is conn
 int pir_sensor_pin = 8; // Pin that PIR motion sensors that ensure no one is around while sides roll are connected to.
 int pir_wait_time_max_seconds = 60; //If PIR sensors detect someone this is how long we'll wait before we give up and accept that we cannot roll
 int pir_milliseconds_between_checks = 5000; //How long to wait between sampling the PIR sensors again when someone is detected
-int inside_temp_sensor_pin = A0; // Analog pin that temperature sensor inside the high tunnel is connected to
-int outside_temp_sensor_pin = A1; // Analog pin that temperature sensor outside the high tunnel is connected to
+int inside_temp_sensor_pin = A1; // Analog pin that temperature sensor inside the high tunnel is connected to
+int outside_temp_sensor_pin = A0; // Analog pin that temperature sensor outside the high tunnel is connected to
 float inside_thermistor_B = 1.0; // Thermistor B parameter - found in datasheet 
 float inside_thermistor_T0 = 1.0; // Manufacturer T0 parameter - found in datasheet (kelvin)
 float inside_thermistor_R0 = 1.0; // Manufacturer R0 parameter - found in datasheet (ohms)
@@ -605,19 +605,30 @@ boolean limitSwitchHit (String rollDirection, String rollSide, boolean logWhenLi
       limitSwitchId = west_winch_bottom_limit_pin;
   }
   
-  int limitSwitchVal = analogRead(limitSwitchId);
-  // TODO test these values with the real switches and make sure they work
-  // TODO If we need to save on analog pins we can connect multiple switches to a single analog pin
-  // see code here http:// forum.arduino.cc/index.php?topic=20125.0
-  if (limitSwitchVal > 500 and limitSwitchVal < 1023) {
-    logMessage(rollSide + " " + rollDirection + " limit switch hit!");
+  if (digitalRead(limitSwitchId) == HIGH) {
+    logMessage(rollSide + " " + rollDirection + " limit switch hit! Pin ID:" + String(limitSwitchId) + " Digital Value: High");
     return true;
   }
   else {
     if (logWhenLimitIsNotHit)
-      logMessage(rollSide + " " + rollDirection + " limit switch not hit");
+      logMessage(rollSide + " " + rollDirection + " limit switch NOT hit Pin ID:" + String(limitSwitchId) + " Digital Value: Low");
     return false;
   }
+  
+  /*
+  int limitSwitchVal = digitalRead(limitSwitchId);
+  // TODO test these values with the real switches and make sure they work
+  // TODO If we need to save on analog pins we can connect multiple switches to a single analog pin
+  // see code here http:// forum.arduino.cc/index.php?topic=20125.0
+  if (limitSwitchVal > 500 and limitSwitchVal < 1023) {
+    logMessage(rollSide + " " + rollDirection + " limit switch hit! Pin ID:" + String(limitSwitchId) + " Analog Value:" + String(limitSwitchVal));
+    return true;
+  }
+  else {
+    if (logWhenLimitIsNotHit)
+      logMessage(rollSide + " " + rollDirection + " limit switch NOT hit Pin ID:" + String(limitSwitchId) + " Analog Value:" + String(limitSwitchVal));
+    return false;
+  }*/
 }
 
 // TODO: confirm that this code works with the actual sensors and their input values
@@ -942,19 +953,30 @@ void runFans() {
 
 // Configure digital output pins as such
 void setDigitalPinModes () {
-  pinMode(east_winch_roll_direction_digital_pin, OUTPUT);
-  pinMode(east_winch_roll_power_digital_pin, OUTPUT);
-  pinMode(west_winch_roll_direction_digital_pin, OUTPUT);
-  pinMode(west_winch_roll_power_digital_pin, OUTPUT);
-  pinMode(shutters_direction_digital_pin, OUTPUT);
-  pinMode(shutters_power_digital_pin, OUTPUT);
-  pinMode(fan_power_digital_pin, OUTPUT);
-  pinMode(heat_wave_switch_pin, INPUT);
-  pinMode(pir_sensor_pin, INPUT);
+  logMessage("Configuring Digital Pin Modes");
+  setPinToOutput(east_winch_roll_direction_digital_pin);
+  setPinToOutput(east_winch_roll_power_digital_pin);
+  setPinToOutput(west_winch_roll_direction_digital_pin);
+  setPinToOutput(west_winch_roll_power_digital_pin);
+  setPinToOutput(shutters_direction_digital_pin);
+  setPinToOutput(shutters_power_digital_pin);
+  setPinToOutput(fan_power_digital_pin);
+  setPinToInput(heat_wave_switch_pin);
+  setPinToInput(pir_sensor_pin);
+}
+
+void setPinToOutput (int pinID) {
+  logMessage("Setting pinID: " + String(pinID) + " to Output");
+  pinMode(pinID, OUTPUT);
+}
+
+void setPinToInput (int pinID) {
+  logMessage("Setting pinID: " + String(pinID) + " to Input");
+  pinMode(pinID, INPUT);
 }
 
 void setup(){
-  Serial.begin(57600);
+  Serial.begin(9600);
   wf.begin();
   if (! rtc.begin())
     Serial.println("ERROR: Couldn't find RTC (DS1307 Real Time Clock)");
@@ -974,8 +996,8 @@ void setup(){
   ensureLogFileExists(heatWaveFileName);
   readConfigFromFile();
   Serial.println();
-  printHelp();
   setDigitalPinModes();
+  printHelp();
 }
 
 void loop() {
