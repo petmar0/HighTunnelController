@@ -5,7 +5,7 @@ A1 Inside Temp
 A2 Battery Sensor
 A3 Solar Sensor
 A4 West Winch Bottom Limit
-A5 West Winch Teop Limit
+A5 West Winch Top Limit
 A6 East Winch Bottom Limit
 A7 East Winch Top Limit
 
@@ -22,7 +22,6 @@ D10 Fan Power
 D11 uSD
 D12 uSD
 D13 uSD
-
 
 Could D2 be an issue?
     // on a fully populated WildFire v3
