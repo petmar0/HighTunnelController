@@ -1,29 +1,32 @@
-Pins
+/*
+Pin Definitions
 Analog
-A0 Outside temp
-A1 Inside Temp
-A2 Battery Sensor
-A3 Solar Sensor
-A4 West Winch Bottom Limit
-A5 West Winch Top Limit
-A6 East Winch Bottom Limit
-A7 East Winch Top Limit
+A0 Outside Temp
+A1 east limit switches
+A2 west limit switches
+A3 Inside Temp
+A4 solar
+A5 
+A6 
+A7 
 
 Digital
-D2 Shutters Direction
-D3 Shutters Power
-D4 uSD X East Winch Dir ISSUE!!!
-D5 East Winch Power
-D6 West Winch Dir X LED Pin ISSUE!!!
-D7 West Winch Power
-D8 PIR Sensor
-D9 Heat Wave Switch
-D10 Fan Power
-D11 uSD
-D12 uSD
-D13 uSD
+D2 - Fans
+D3 - East Winch Direction (default is down)
+D4 - East Winch Power
+D5 - West Winch Direction (default is down)
+D6 - West Winch Power
+D7 - South Actuator Direction (default is open)
+D8 - South Actuator Power
+D9 - North Actuator Direction (default is open)
+D10 - North Actuator Power
+D11 - Heat Wave Switch
+D12 - PIR Sensors
 
-Could D2 be an issue?
-    // on a fully populated WildFire v3
-    // Dig22 (CC3000 interrupt) and Dig2 (RFM69 interrupt)
-
+TODO
+remove siren code
+confirm pins for all inputs and outputs
+run motor test
+run sensor test
+run code for a little while and then read sd card
+*/

@@ -2,7 +2,7 @@
 #include <SD.h>
 #include <WildFire.h>
 #include <Wire.h>
-#include "RTClib.h"
+// #include "RTClib.h"
 
 // Constants used by program, note that the file names are essentially constants but specifying that causes an error
 const unsigned long MIN_ALLOWABLE_DATE_TIME = 1420156799; // 1 second before Jan 1 2015 GMT
@@ -26,42 +26,28 @@ int heat_wave_enabled_warming_temperature = 95; // When heat wave is enabled kee
 int heat_wave_enabled_cooling_temperature = 99; // When heat wave is enabled cool if tunnel gets above this. If outside is hot the keep up with that temp instead
 int heat_wave_hours_to_log = 6; // How many consecutive hours temp must be above heat_wave_temperature to count as a heat wave day
 int heat_wave_days_to_log = 3; // How many consecutive heat wave days must happen to count as a heat wave
-// TODO update heat_wave_switch_pin and pir_sensor_pin
-int heat_wave_switch_pin = 9; // Pin the switch to enable heat wave mode is connected to
-int pir_sensor_pin = 8; // Pin that PIR motion sensors that ensure no one is around while sides roll are connected to.
+int heat_wave_switch_pin = 11; // Pin the switch to enable heat wave mode is connected to
+int pir_sensor_pin = 12; // Pin that PIR motion sensors that ensure no one is around while sides roll are connected to.
 int pir_wait_time_max_seconds = 60; //If PIR sensors detect someone this is how long we'll wait before we give up and accept that we cannot roll
-int pir_milliseconds_between_checks = 5000; //How long to wait between sampling the PIR sensors again when someone is detected
-int inside_temp_sensor_pin = A1; // Analog pin that temperature sensor inside the high tunnel is connected to
+int pir_milliseconds_between_checks = 1000; //How long to wait between sampling the PIR sensors again when someone is detected
+int inside_temp_sensor_pin = A3; // Analog pin that temperature sensor inside the high tunnel is connected to
 int outside_temp_sensor_pin = A0; // Analog pin that temperature sensor outside the high tunnel is connected to
-float inside_thermistor_B = 1.0; // Thermistor B parameter - found in datasheet 
-float inside_thermistor_T0 = 1.0; // Manufacturer T0 parameter - found in datasheet (kelvin)
-float inside_thermistor_R0 = 1.0; // Manufacturer R0 parameter - found in datasheet (ohms)
-float inside_thermistor_R_Balance = 1.0; // Your balance resistor resistance in ohms
-float outside_thermistor_B = 1.0; // Thermistor B parameter - found in datasheet 
-float outside_thermistor_T0 = 1.0; // Manufacturer T0 parameter - found in datasheet (kelvin)
-float outside_thermistor_R0 = 1.0; // Manufacturer R0 parameter - found in datasheet (ohms)
-float outside_thermistor_R_Balance = 1.0; // Your balance resistor resistance in ohms
-unsigned long millisecond_delay_between_actions = 10000; // How long to wait between reading temperature and taking action to correct it
-unsigned long millisecond_delay_low_power = 110000; // When battery is low add this to millisecond_delay_between_actions to slow down power consumption
-int alarm_before_winch_roll_seconds = 3; // How long to sound alarm buzzer for before rolling sides (alarm buzzer should be connected to direction relays)
-int winch_roll_seconds = 3; // How many seconds to roll each winch at a time
+unsigned long millisecond_delay_between_actions = 5000; // How long to wait between reading temperature and taking action to correct it
+int winch_roll_seconds = 5; // How many seconds to roll each winch at a time
 int winch_roll_milliseconds_between_limit_check = 100; // How long to wait between checking limit sensors while rolling
-int fan_run_seconds = 3; // How how long to run fans at a stretch
-int east_winch_roll_direction_digital_pin = 4; // Digital pin that sets direction east winch will roll, also sounds alarm when powered up
-int east_winch_roll_power_digital_pin = 5; // Digital pin that causes east winch to start rolling
-int west_winch_roll_direction_digital_pin = 6; // Digital pin that sets direction west winch will roll, also sounds alarm when powered up
-int west_winch_roll_power_digital_pin = 7; // Digital pin that causes west winch to start rolling
-int east_winch_top_limit_pin = A7; // Analog pin that connects to top limit sensor for east winch
-int east_winch_bottom_limit_pin = A6; // Analog pin that connects to bottom limit sensor for east winch
-int west_winch_top_limit_pin = A5; // Analog pin that connects to top limit sensor for west winch
-int west_winch_bottom_limit_pin = A4; // Analog pin that connects to bottom limit sensor for west winch
-int shutters_direction_digital_pin = 2; // Digital pin that controls whether shutters open or close
-int shutters_power_digital_pin = 3; // Digital pin that powers shutters to move open or closed
-int fan_power_digital_pin = 10; // Digital pin that powers up the fans to spin
-int battery_sensor_pin = A2; // Analog pin that senses how much power is left in battery
-int solar_sensor_pin = A3; // Analog pin that senses how much power the solar panel is delivering
-// TODO figure out what an actual sensible reading for battery_low_power_reading is
-int battery_low_power_reading = 512; // Reading below which battery is considered to be at Low power
+int fan_run_seconds = 20; // How how long to run fans at a stretch
+int east_winch_roll_direction_digital_pin = 3; // Digital pin that sets direction east winch will roll, also sounds alarm when powered up
+int east_winch_roll_power_digital_pin = 4; // Digital pin that causes east winch to start rolling
+int west_winch_roll_direction_digital_pin = 5; // Digital pin that sets direction west winch will roll, also sounds alarm when powered up
+int west_winch_roll_power_digital_pin = 6; // Digital pin that causes west winch to start rolling
+int east_winch_limit_pin = A1; // Analog pin that connects to top limit sensor for east winch
+int west_winch_limit_pin = A2; // Analog pin that connects to top limit sensor for west winch
+int south_shutters_direction_digital_pin = 7; // Digital pin that controls whether south shutters open or close
+int south_shutters_power_digital_pin = 8; // Digital pin that powers south shutters to move open or closed
+int north_shutters_direction_digital_pin = 9; // Digital pin that controls whether north shutters open or close
+int north_shutters_power_digital_pin = 10; // Digital pin that powers north shutters to move open or closed
+int fan_power_digital_pin = 2; // Digital pin that powers up the fans to spin
+int solar_sensor_pin = A4; // Analog pin that senses how much power the solar panel is delivering
 boolean automatically_start_high_tunnel_control = false; // Set this to true so that upon restart the high tunnel control program automatically runs
 
 // Internal variables that the program manages itself
@@ -73,11 +59,9 @@ boolean heatWaveTempSurpassedToday = false; // If we ever go above heat wave tem
 boolean heatWaveHoursSurpassedToday = false; // If it has stayed above heat_wave_temperature for heat_wave_hours_to_log then note it
 int heatWaveDaysInARow = 0; // Count how many days we have had heatWaveHoursSurpassedToday in a row
 int heatWaveVarsResetDay = 0; // Note the last day that heatwave vars were reset, if it isn't today log heatwave data and reset vars
+boolean sd_write_enabled = true; // Debugging variable that can be used to temporarily disable writing to SD card
 WildFire wf;
-RTC_DS1307 rtc;
-
-// TODO add code to convert solar panel and battery readings to voltages NEED to get conversion details from Pete
-// NEED temp sensor variables from Pete
+// RTC_DS1307 rtc;
 
 ////////////////////////Start SD Card Functions////////////////////////
 void setupSdCard() {
@@ -199,28 +183,8 @@ void processKeyValuePair(String key, String value, boolean printOutMode) {
     pir_wait_time_max_seconds = processConfigInt(key,value);
   else if (validKey(key, "pir_milliseconds_between_checks", printOutMode) && confirmValidNum(value,false,false, printOutMode))
     pir_milliseconds_between_checks = processConfigInt(key,value);    
-  else if (validKey(key, "inside_thermistor_B", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    inside_thermistor_B = processConfigFloat(key,value);
-  else if (validKey(key, "inside_thermistor_T0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    inside_thermistor_T0 = processConfigFloat(key,value);
-  else if (validKey(key, "inside_thermistor_R0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    inside_thermistor_R0 = processConfigFloat(key,value);
-  else if (validKey(key, "inside_thermistor_R_Balance", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    inside_thermistor_R_Balance = processConfigFloat(key,value);
-  else if (validKey(key, "outside_thermistor_B", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    outside_thermistor_B = processConfigFloat(key,value);
-  else if (validKey(key, "outside_thermistor_T0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    outside_thermistor_T0 = processConfigFloat(key,value);
-  else if (validKey(key, "outside_thermistor_R0", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    outside_thermistor_R0 = processConfigFloat(key,value);
-  else if (validKey(key, "outside_thermistor_R_Balance", printOutMode) && confirmValidNum(value,false,true, printOutMode))
-    outside_thermistor_R_Balance = processConfigFloat(key,value);
   else if (validKey(key, "millisecond_delay_between_actions", printOutMode) && confirmValidNum(value,false,false,printOutMode))
     millisecond_delay_between_actions = processConfigInt(key,value);
-  else if (validKey(key, "millisecond_delay_low_power", printOutMode) && confirmValidNum(value,false,false,printOutMode))
-    millisecond_delay_low_power = processConfigInt(key,value);  
-  else if (validKey(key, "alarm_before_winch_roll_seconds", printOutMode) && confirmValidNum(value,false,false,printOutMode))
-    alarm_before_winch_roll_seconds = processConfigInt(key,value);
   else if (validKey(key, "winch_roll_seconds", printOutMode) && confirmValidNum(value,false,false,printOutMode))
     winch_roll_seconds = processConfigInt(key,value);
   else if (validKey(key, "winch_roll_milliseconds_between_limit_check", printOutMode) && confirmValidNum(value,false,false,printOutMode))
@@ -235,22 +199,20 @@ void processKeyValuePair(String key, String value, boolean printOutMode) {
     west_winch_roll_direction_digital_pin = processConfigInt(key,value);
   else if (validKey(key, "west_winch_roll_power_digital_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
     west_winch_roll_power_digital_pin = processConfigInt(key,value);
-  else if (validKey(key, "east_winch_top_limit_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
-    east_winch_top_limit_pin = processConfigInt(key,value);
-  else if (validKey(key, "east_winch_bottom_limit_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
-    east_winch_bottom_limit_pin = processConfigInt(key,value);
-  else if (validKey(key, "west_winch_top_limit_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
-    west_winch_top_limit_pin = processConfigInt(key,value);
-  else if (validKey(key, "west_winch_bottom_limit_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
-    west_winch_bottom_limit_pin = processConfigInt(key,value);
-  else if (validKey(key, "shutters_direction_digital_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
-    shutters_direction_digital_pin = processConfigInt(key,value);
-  else if (validKey(key, "shutters_power_digital_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
-    shutters_power_digital_pin = processConfigInt(key,value);
+  else if (validKey(key, "east_winch_limit_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
+    east_winch_limit_pin = processConfigInt(key,value);
+  else if (validKey(key, "west_winch_limit_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
+    west_winch_limit_pin = processConfigInt(key,value);
+  else if (validKey(key, "south_shutters_direction_digital_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
+    south_shutters_direction_digital_pin = processConfigInt(key,value);
+  else if (validKey(key, "south_shutters_power_digital_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
+    south_shutters_power_digital_pin = processConfigInt(key,value);
+  else if (validKey(key, "north_shutters_direction_digital_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
+    north_shutters_direction_digital_pin = processConfigInt(key,value);
+  else if (validKey(key, "north_shutters_power_digital_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
+    north_shutters_power_digital_pin = processConfigInt(key,value);
   else if (validKey(key, "fan_power_digital_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
     fan_power_digital_pin = processConfigInt(key,value);
-  else if (validKey(key, "battery_sensor_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
-    battery_sensor_pin = processConfigInt(key,value);
   else if (validKey(key, "solar_sensor_pin", printOutMode) && confirmValidNum(value,false,false,printOutMode))
     solar_sensor_pin = processConfigInt(key,value);
   else if (validKey(key, "automatically_start_high_tunnel_control", printOutMode) && confirmValidBool(value, false, printOutMode))
@@ -331,13 +293,15 @@ void writeSdFile(String sdMessage, char sdFileName[]) {
   File myFile;
   Serial.print("Writing to file " + String(sdFileName));
   Serial.println(" Message: " + sdMessage);
-  myFile = SD.open(sdFileName, FILE_WRITE);
-  if (myFile) {
-    myFile.println(sdMessage);
-    myFile.close();
+  if (sd_write_enabled) {
+    myFile = SD.open(sdFileName, FILE_WRITE);
+    if (myFile) {
+      myFile.println(sdMessage);
+      myFile.close();
+    }
+    else 
+      Serial.println("WRITE ERROR: Issue opening file for writing!");
   }
-  else 
-    Serial.println("WRITE ERROR: Issue opening file for writing!");
 }
 
 void readSdFile(char sdFileName[])
@@ -511,7 +475,6 @@ void readAllSensors () {
   getTempFromSensor ("inside", true);
   getTempFromSensor ("outside", true);
   checkSolarLevel ();
-  checkBatteryLevel();
   isHeatWaveSwitchOn();
   isPersonNearRollers();
 }
@@ -534,7 +497,7 @@ void setTimeFromSerialPort(String inputString) {
   // Only set time if it is in a reasonable time range (between 2015 and 2030)
   if(parsedTime > MIN_ALLOWABLE_DATE_TIME && parsedTime < MAX_ALLOWABLE_DATE_TIME) {
     logMessage("Updating time.");
-    rtc.adjust(parsedTime + gmt_hour_offset * SECONDS_IN_HOUR);
+//    rtc.adjust(parsedTime + gmt_hour_offset * SECONDS_IN_HOUR);
     logMessage("Time set");
   }
   else {
@@ -580,55 +543,49 @@ String zeroPad (int intToZeroPad, int padLength)
 // Get timestamp in MM/DD/YYYY hh:mm:ss format
 String getTimeStampString() {
   String timeStamp;
-  DateTime time = rtc.now();
+/*  DateTime time = rtc.now();
   timeStamp = zeroPad(time.month(),2) + "/" + zeroPad(time.day(),2) + "/" + zeroPad(time.year(),4) + " ";
-  timeStamp += zeroPad(time.hour(),2) + ":" + zeroPad(time.minute(),2) + ":" + zeroPad(time.second(),2);
+  timeStamp += zeroPad(time.hour(),2) + ":" + zeroPad(time.minute(),2) + ":" + zeroPad(time.second(),2); */
+  timeStamp = zeroPad(month(),2) + "/" + zeroPad(day(),2) + "/" + zeroPad(year(),4) + " ";
+  timeStamp += zeroPad(hour(),2) + ":" + zeroPad(minute(),2) + ":" + zeroPad(second(),2); 
   return timeStamp;
 }
 ////////////////////////End Time and logging Functions////////////////////////
 
 ////////////////////////Start High Tunnel Sensor Functions////////////////////////
 boolean limitSwitchHit (String rollDirection, String rollSide, boolean logWhenLimitIsNotHit) {
-  // TODO confirm all cases for this function
   // TODO If these if statements are taking too long to run move them out to a function that only runs once per roll
-  int limitSwitchId = east_winch_top_limit_pin;
-  if (rollSide == "East") {
-    if (rollDirection == "Up")
-      limitSwitchId = east_winch_top_limit_pin;
-    else
-      limitSwitchId = east_winch_bottom_limit_pin;
-  }
-  else {
-    if (rollDirection == "Up")
-      limitSwitchId = west_winch_top_limit_pin;
-    else
-      limitSwitchId = west_winch_bottom_limit_pin;
-  }
+  int limitSwitchId = west_winch_limit_pin;
+  if (rollSide == "East")
+    limitSwitchId = east_winch_limit_pin;
   
-  if (digitalRead(limitSwitchId) == HIGH) {
-    logMessage(rollSide + " " + rollDirection + " limit switch hit! Pin ID:" + String(limitSwitchId) + " Digital Value: High");
+  int limitSwitchReading = analogRead(limitSwitchId);
+  
+  // Both top and bottom limit switches for each side are wired into a single analog pin using resistors
+  // If the Top is hit alone it reads 346, if the Bottom is hit alone it reads 260 and if Both are hit it reads 172
+  // Cushion the check by 20 bits in case the reads are slightly off
+  int cushion = 20;
+  int topHit = 346;
+  int bottomHit = 260;
+  int bothHit = 172;
+  
+  // Set dirHit based on the direction that you are checking
+  int dirHit = bottomHit;
+  if (rollDirection == "Up")
+    dirHit = topHit;
+  
+  if (limitSwitchReading > dirHit - cushion && limitSwitchReading < dirHit + cushion) {
+    logMessage(rollSide + " " + rollDirection + " limit switch hit! Analog Reading: " + String(limitSwitchReading));
     return true;
   }
-  else {
-    if (logWhenLimitIsNotHit)
-      logMessage(rollSide + " " + rollDirection + " limit switch NOT hit Pin ID:" + String(limitSwitchId) + " Digital Value: Low");
-    return false;
-  }
-  
-  /*
-  int limitSwitchVal = digitalRead(limitSwitchId);
-  // TODO test these values with the real switches and make sure they work
-  // TODO If we need to save on analog pins we can connect multiple switches to a single analog pin
-  // see code here http:// forum.arduino.cc/index.php?topic=20125.0
-  if (limitSwitchVal > 500 and limitSwitchVal < 1023) {
-    logMessage(rollSide + " " + rollDirection + " limit switch hit! Pin ID:" + String(limitSwitchId) + " Analog Value:" + String(limitSwitchVal));
+  if (limitSwitchReading > bothHit - cushion && limitSwitchReading < bothHit + cushion) {
+    logError ("Both limit switches on " + rollSide + " are hit! Something is wrong! Analog Reading:" + String(limitSwitchReading));
     return true;
   }
-  else {
-    if (logWhenLimitIsNotHit)
-      logMessage(rollSide + " " + rollDirection + " limit switch NOT hit Pin ID:" + String(limitSwitchId) + " Analog Value:" + String(limitSwitchVal));
-    return false;
-  }*/
+
+  if (logWhenLimitIsNotHit)
+    logMessage (rollSide + " " + rollDirection + " limit switch NOT hit. Analog Reading:" + String(limitSwitchReading));
+  return false;
 }
 
 // TODO: confirm that this code works with the actual sensors and their input values
@@ -647,25 +604,25 @@ float getTempFromSensor (String insideOrOutside, boolean disableManualEntry) {
   }
 
   // initialize to outside and reset to inside if needed
-  float thermistor_B = outside_thermistor_B;
-  float thermistor_T0 = outside_thermistor_T0;
-  float thermistor_R0 = outside_thermistor_R0;
-  float thermistor_R_Balance = outside_thermistor_R_Balance;
   float sensorRead;
   
-  if (insideOrOutside == "inside") {
+  if (insideOrOutside == "inside")
     sensorRead = analogRead(inside_temp_sensor_pin);
-    thermistor_B = inside_thermistor_B;
-    thermistor_T0 = inside_thermistor_T0;
-    thermistor_R0 = inside_thermistor_R0;
-    thermistor_R_Balance = inside_thermistor_R_Balance;
-  }
   else 
     sensorRead = analogRead(outside_temp_sensor_pin);
   
-  // Temperature conversion code adapted from http:// playground.arduino.cc/ComponentLib/Thermistor2
-  float thermistor_R=thermistor_R_Balance*(1024.0f/sensorRead-1);
-  temperature=1.0f/(1.0f/thermistor_T0+(1.0f/thermistor_B)*log(thermistor_R/thermistor_R0)) - 273.15;
+  /* Temperature Conversion
+     Divide the mV from the sensor by 100 to get temperature in C
+     The sensor has 1023 bits for 5000 mV so 
+     Temp in C = sensorRead/1023*5000/100 = sensorRead/1023*50 = sensorRead*50.0/1023.0
+     For reference 60 F = (60-32)*5/9 = 15.5 C
+       15.5 C = 15.5*100 = 1550 mV
+       1550 mV = 1550/5000*1023 = 317 analogRead
+     0 LSB = 0 C = 32 F
+     Every 100 bits = 4.887 C = 8.797 F
+  */
+  temperature=sensorRead*50.0/1023.0;
+  
   // Convert Celcius to Fahrenheit if set to F
   if (temperature_units == 'F')
       temperature = (temperature * 9.0)/ 5.0 + 32.0;
@@ -679,24 +636,6 @@ int checkSolarLevel () {
   // TODO add code that converts this number into an easier to understand voltage
   logMessage("Solar panel output at " + String(solarReading));
   return solarReading;
-}
-
-int checkBatteryLevel() {
-  int batteryReading = -9999;
-  if (manual_sensor_entry_mode) {
-    Serial.println("manual_sensor_entry_mode is set to true so you must manually enter a battery level value");
-    while (batteryReading == -9999) {
-      Serial.println("Enter battery level as an int between 0 and 1023 followed by a ;. exe. 1013;");
-      String inputValue = Serial.readStringUntil(';');
-      if (confirmValidNum(inputValue, false, false, false))
-        batteryReading = inputValue.toInt();
-      }
-  }
-  else
-    batteryReading = analogRead(battery_sensor_pin);
-  // TODO add code that converts batteryReading into an easier to understand voltage or percent of charge value
-  logMessage("Battery level at " + String(batteryReading));
-  return batteryReading;
 }
 
 // TODO confirm that High means person detected
@@ -719,16 +658,13 @@ boolean isPersonNearRollers() {
 String getTunnelStatus () {
   // Check all sensors, solar level is currently just logged and not used for any logic
   checkSolarLevel();
-  int batteryLevel = checkBatteryLevel();
   float insideTemp = getTempFromSensor ("inside", false);
   float outsideTemp = getTempFromSensor ("outside", false);
   float tempDelta = insideTemp - outsideTemp;
   
   checkForHeatWave(insideTemp);
 
-  // check low power and super cool first because they act the samme whether artificial heat wave is enabled or not
-  if (batteryLevel < battery_low_power_reading)
-    return "Low Power";
+  // check super cool first because it acts the samme whether artificial heat wave is enabled or not
   if (tempDelta < super_cool_delta)
     return "Super Cool";
     
@@ -786,18 +722,20 @@ void logHeatWaveDataAndResetVariables () {
   }
   heatWaveHoursSurpassedToday = false;
   heatWaveTempSurpassedToday = false;
-  heatWaveVarsResetDay = rtc.now().day();
+  heatWaveVarsResetDay = day();// rtc.now().day();
 }
 
 void checkForHeatWave (float insideTemp) {
   // Every time we reach a new day log the previous day's heat wave results and reset the heat wave variables
-  if (rtc.now().day() != heatWaveVarsResetDay)
+  if (day() != heatWaveVarsResetDay)//  if (rtc.now().day() != heatWaveVarsResetDay)
     logHeatWaveDataAndResetVariables();
   if (insideTemp > heat_wave_temperature) {
     heatWaveTempSurpassedToday = true;
     if (heatWaveRequiredEndTime == 0)
-      heatWaveRequiredEndTime = rtc.now().hour()*60*60 + rtc.now().minute()*60 + rtc.now().second() + heat_wave_hours_to_log*SECONDS_IN_HOUR;
-    else if (rtc.now().hour()*60*60 + rtc.now().minute()*60 + rtc.now().second() > heatWaveRequiredEndTime)
+      heatWaveRequiredEndTime = hour()*60*60 + minute()*60 + second() + heat_wave_hours_to_log*SECONDS_IN_HOUR;
+      // heatWaveRequiredEndTime = rtc.now().hour()*60*60 + rtc.now().minute()*60 + rtc.now().second() + heat_wave_hours_to_log*SECONDS_IN_HOUR;
+    // else if (rtc.now().hour()*60*60 + rtc.now().minute()*60 + rtc.now().second() > heatWaveRequiredEndTime)
+    else if (hour()*60*60 + minute()*60 + second() > heatWaveRequiredEndTime)
         heatWaveHoursSurpassedToday = true;
   }
   else {
@@ -845,36 +783,36 @@ void manageHighTunnelTemp () {
   }
   else if (currentTunnelpStatus=="Just Right")
     logMessage("Temp is in acceptable bounds, leaving everything as is");
-  else if (currentTunnelpStatus=="Low Power") {
-    logError("Battery has dropped too low, not running motors and delaying " + String(millisecond_delay_low_power) + "ms longer between checks to save energy");
-    delay(millisecond_delay_low_power);
-    // TODO decide if you want to try and completely open high tunnel up when you get into low power mode to avoid cooking plants
-  }
   else
     logError("Unexpected value " + currentTunnelpStatus + " returned by getTunnelStatus().");
 }
 
+// Note: LOW is open direction, high is closed
 void changeShutters () {
   if (!shuttersOpen) {
     logMessage("Opening closed shutters");
-    // TODO confirm that HIGH sets shutter direction to open and low sets it to closed
-    digitalWrite(shutters_direction_digital_pin, HIGH);
+    digitalWrite(north_shutters_direction_digital_pin, LOW);
+    digitalWrite(south_shutters_direction_digital_pin, LOW);
     shuttersOpen = true;
   }
   else {
     logMessage("Closing open shutters");
-    digitalWrite(shutters_direction_digital_pin, LOW);
+    digitalWrite(north_shutters_direction_digital_pin, HIGH);
+    digitalWrite(south_shutters_direction_digital_pin, HIGH);
     shuttersOpen = false;
   }
   // Delay for a moment to ensure shutter direction relay is powered up
   delay (100);
-  digitalWrite(shutters_power_digital_pin, HIGH);
+  digitalWrite(north_shutters_power_digital_pin, HIGH);
+  digitalWrite(south_shutters_power_digital_pin, HIGH);
   // Delay for another moment to give shutter time to open
   delay(200);
   
   // Power down both relays
-  digitalWrite(shutters_direction_digital_pin, LOW);
-  digitalWrite(shutters_power_digital_pin, LOW);
+  digitalWrite(north_shutters_direction_digital_pin, LOW);
+  digitalWrite(south_shutters_direction_digital_pin, LOW);
+  digitalWrite(north_shutters_power_digital_pin, LOW);
+  digitalWrite(south_shutters_power_digital_pin, LOW);
 }
 
 void rollSides (String rollDirection) {
@@ -907,32 +845,27 @@ void rollSide (String rollDirection, String rollSide) {
   }
   
   digitalWrite(rollPowerPin, LOW);
-  logMessage("Ending " + rollSide + " side roll " + rollDirection);
+  logMessage("Ending " + rollSide + " side roll " + rollDirection + " after " + String(millisecondsRolling) + " ms.");
   setRollDirection(rollDirection, false, rollSide);
 }
 
+// Note: Down is LOW Up is HIGH
 void setRollDirection(String rollDirection, boolean powerOn, String rollSide)
 {
   int rollWinchPin;
-  // TODO confirm that this East check actually works
   if (rollSide == "East")
     rollWinchPin = east_winch_roll_direction_digital_pin;
   else
     rollWinchPin = west_winch_roll_direction_digital_pin;
     
   if(powerOn) {
-    // TODO confirm that only way to sound alarm is to set direction pin to high
-    logMessage("Sounding alarm on " + rollSide + " for " + String(alarm_before_winch_roll_seconds) + " seconds before rolling");
-    digitalWrite(rollWinchPin, HIGH);
-    delay(alarm_before_winch_roll_seconds*1000);
     logMessage("Setting roll direction for " + rollSide + " side to " + rollDirection);
-    
-    // Because we set the pin high to sound the alarm we only need to change it if the direction is down
-    // TODO assuming rolling Up requires setting direction pin high and Down requires setting it low confirm that this actually works
-    if (rollDirection == "Down") {
+    if (rollDirection == "Down")
       digitalWrite(rollWinchPin, LOW);
-      delay (100); // Add a short delay to ensure the relay has time to change states TODO confirm this delay time is good
-    }
+    else 
+      digitalWrite(rollWinchPin, HIGH);
+    delay (100); // Add a short delay to ensure the relay has time to change states TODO confirm this delay time is good
+    
   }
   else {
     logMessage("Rolling complete, powering down " + rollSide + " roll direction relays");
@@ -958,8 +891,10 @@ void setDigitalPinModes () {
   setPinToOutput(east_winch_roll_power_digital_pin);
   setPinToOutput(west_winch_roll_direction_digital_pin);
   setPinToOutput(west_winch_roll_power_digital_pin);
-  setPinToOutput(shutters_direction_digital_pin);
-  setPinToOutput(shutters_power_digital_pin);
+  setPinToOutput(north_shutters_direction_digital_pin);
+  setPinToOutput(south_shutters_direction_digital_pin);
+  setPinToOutput(north_shutters_power_digital_pin);
+  setPinToOutput(south_shutters_power_digital_pin);
   setPinToOutput(fan_power_digital_pin);
   setPinToInput(heat_wave_switch_pin);
   setPinToInput(pir_sensor_pin);
@@ -978,7 +913,7 @@ void setPinToInput (int pinID) {
 void setup(){
   Serial.begin(9600);
   wf.begin();
-  if (! rtc.begin())
+/*  if (! rtc.begin())
     Serial.println("ERROR: Couldn't find RTC (DS1307 Real Time Clock)");
 
   if (! rtc.isrunning()) {
@@ -989,11 +924,12 @@ void setup(){
     // January 21, 2014 at 3am you would call:
     // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
   }
-  delay(500);
+  delay(500);*/
 
   setupSdCard();
   ensureLogFileExists(logFileName);
   ensureLogFileExists(heatWaveFileName);
+  ensureLogFileExists(configFileName);
   readConfigFromFile();
   Serial.println();
   setDigitalPinModes();
@@ -1006,6 +942,7 @@ void loop() {
     processSerialInput('b');
     
   if (Serial.available() > 0){
+    delay(100);
     incomingByte = Serial.read();
     Serial.print("     Command received: ");
     Serial.println(incomingByte);
