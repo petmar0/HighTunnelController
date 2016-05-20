@@ -1,32 +1,36 @@
 /*
-Pin Definitions
+OLD Pin Definitions
 Analog
-A0 Outside Temp
-A1 east limit switches
-A2 west limit switches
-A3 Inside Temp
-A4 solar
-A5 
+A0 Inside Temp
+A1 West limit switches
+A2 East limit switches
+A3 Pir
+A4 Outside Temp
+A5 Solar (not currently connected)
 A6 
 A7 
 
+NEW Pin Definitions
+Analog
+A0 West limit switches
+A1 Outside Temp
+A2 Inside Temp
+A3 East limit switches
+A4 
+A5 
+A6 PIR
+A7 Solar (not currently connected)
+
 Digital
 D2 - Fans
-D3 - East Winch Direction (default is down)
-D4 - East Winch Power
-D5 - West Winch Direction (default is down)
-D6 - West Winch Power
-D7 - South Actuator Direction (default is open)
-D8 - South Actuator Power
-D9 - North Actuator Direction (default is open)
-D10 - North Actuator Power
-D11 - Heat Wave Switch
-D12 - PIR Sensors
-
-TODO
-remove siren code
-confirm pins for all inputs and outputs
-run motor test
-run sensor test
-run code for a little while and then read sd card
+D3 - East Winch Direction (HIGH is down)
+D4 - East Winch Power (LOW sends power)
+D5 - West Winch Direction (HIGH is down)
+D6 - Onboard LED
+D7 - South Actuator Direction (HIGH is open)
+D8 - South Actuator Power (LOW sends power)
+D9 - North Actuator Direction (HIGH is open)
+D10 - North Actuator Power (LOW sends power)
+D11 - West Winch Power (LOW sends power)
+D12 - Heat Wave Switch
 */

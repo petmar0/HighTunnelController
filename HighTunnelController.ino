@@ -26,28 +26,28 @@ int heat_wave_enabled_warming_temperature = 95; // When heat wave is enabled kee
 int heat_wave_enabled_cooling_temperature = 99; // When heat wave is enabled cool if tunnel gets above this. If outside is hot the keep up with that temp instead
 int heat_wave_hours_to_log = 6; // How many consecutive hours temp must be above heat_wave_temperature to count as a heat wave day
 int heat_wave_days_to_log = 3; // How many consecutive heat wave days must happen to count as a heat wave
-int heat_wave_switch_pin = 11; // Pin the switch to enable heat wave mode is connected to
-int pir_sensor_pin = 12; // Pin that PIR motion sensors that ensure no one is around while sides roll are connected to.
-int pir_wait_time_max_seconds = 60; //If PIR sensors detect someone this is how long we'll wait before we give up and accept that we cannot roll
-int pir_milliseconds_between_checks = 1000; //How long to wait between sampling the PIR sensors again when someone is detected
-int inside_temp_sensor_pin = A3; // Analog pin that temperature sensor inside the high tunnel is connected to
-int outside_temp_sensor_pin = A0; // Analog pin that temperature sensor outside the high tunnel is connected to
+int heat_wave_switch_pin = 12; // Pin the switch to enable heat wave mode is connected to
+int pir_sensor_pin = A6; // Pin that PIR motion sensors that ensure no one is around while sides roll are connected to.
+int pir_wait_time_max_seconds = 10; //If PIR sensors detect someone this is how long we'll wait before we give up and accept that we cannot roll
+int pir_milliseconds_between_checks = 1000; //How long to wait between sampling the PIR sensors again when someone is detected, also how long to do a continuous sample for movement
+int inside_temp_sensor_pin = A2; // Analog pin that temperature sensor inside the high tunnel is connected to
+int outside_temp_sensor_pin = A1; // Analog pin that temperature sensor outside the high tunnel is connected to
 unsigned long millisecond_delay_between_actions = 5000; // How long to wait between reading temperature and taking action to correct it
-int winch_roll_seconds = 5; // How many seconds to roll each winch at a time
+int winch_roll_seconds = 7; // How many seconds to roll each winch at a time
 int winch_roll_milliseconds_between_limit_check = 100; // How long to wait between checking limit sensors while rolling
 int fan_run_seconds = 20; // How how long to run fans at a stretch
 int east_winch_roll_direction_digital_pin = 3; // Digital pin that sets direction east winch will roll, also sounds alarm when powered up
 int east_winch_roll_power_digital_pin = 4; // Digital pin that causes east winch to start rolling
-int west_winch_roll_direction_digital_pin = 5; // Digital pin that sets direction west winch will roll, also sounds alarm when powered up
-int west_winch_roll_power_digital_pin = 6; // Digital pin that causes west winch to start rolling
-int east_winch_limit_pin = A1; // Analog pin that connects to top limit sensor for east winch
-int west_winch_limit_pin = A2; // Analog pin that connects to top limit sensor for west winch
+int west_winch_roll_direction_digital_pin = 11; // Digital pin that sets direction west winch will roll, also sounds alarm when powered up
+int west_winch_roll_power_digital_pin = 5; // Digital pin that causes west winch to start rolling
+int east_winch_limit_pin = A3; // Analog pin that connects to top limit sensor for east winch
+int west_winch_limit_pin = A0; // Analog pin that connects to top limit sensor for west winch
 int south_shutters_direction_digital_pin = 7; // Digital pin that controls whether south shutters open or close
 int south_shutters_power_digital_pin = 8; // Digital pin that powers south shutters to move open or closed
 int north_shutters_direction_digital_pin = 9; // Digital pin that controls whether north shutters open or close
 int north_shutters_power_digital_pin = 10; // Digital pin that powers north shutters to move open or closed
 int fan_power_digital_pin = 2; // Digital pin that powers up the fans to spin
-int solar_sensor_pin = A4; // Analog pin that senses how much power the solar panel is delivering
+int solar_sensor_pin = A7; // Analog pin that senses how much power the solar panel is delivering
 boolean automatically_start_high_tunnel_control = false; // Set this to true so that upon restart the high tunnel control program automatically runs
 
 // Internal variables that the program manages itself
@@ -59,7 +59,8 @@ boolean heatWaveTempSurpassedToday = false; // If we ever go above heat wave tem
 boolean heatWaveHoursSurpassedToday = false; // If it has stayed above heat_wave_temperature for heat_wave_hours_to_log then note it
 int heatWaveDaysInARow = 0; // Count how many days we have had heatWaveHoursSurpassedToday in a row
 int heatWaveVarsResetDay = 0; // Note the last day that heatwave vars were reset, if it isn't today log heatwave data and reset vars
-boolean sd_write_enabled = true; // Debugging variable that can be used to temporarily disable writing to SD card
+boolean sd_write_enabled = false; // Debugging variable that can be used to temporarily disable writing to SD card
+boolean sd_read_enabled = false; // Debugging variable that can be used to temporarily disable writing to SD card
 WildFire wf;
 // RTC_DS1307 rtc;
 
@@ -77,38 +78,46 @@ void setupSdCard() {
 }
 
 void ensureLogFileExists (char sdFileName[]) {
-  Serial.println("Ensuring file exists on SD Card.  Filename=" + String(sdFileName));
-  File myFile = SD.open(sdFileName, FILE_READ);
-  if (myFile) {
+  if (sd_read_enabled) {
+    Serial.println("Ensuring file exists on SD Card.  Filename=" + String(sdFileName));
+    File myFile = SD.open(sdFileName, FILE_READ);
+    if (myFile) {
+      myFile.close();
+      logMessage("File found: " + String(sdFileName));
+    }
+    else {
+      logMessage("File not found: " + String(sdFileName));
+      writeSdFile("Initializing File: " + String(sdFileName), sdFileName);
+    }
+    myFile = SD.open(sdFileName, FILE_READ);
+    if (!myFile)
+      logError("Problem creating file: " + String(sdFileName));
     myFile.close();
-    logMessage("File found: " + String(sdFileName));
   }
-  else {
-    logMessage("File not found: " + String(sdFileName));
-    writeSdFile("Initializing File: " + String(sdFileName), sdFileName);
-  }
-  myFile = SD.open(sdFileName, FILE_READ);
-  if (!myFile)
-    logError("Problem creating file: " + String(sdFileName));
-  myFile.close();
+  else
+    Serial.println("SD Reading disabled, no log file exists");
 }
 
 void readConfigFromFile () {
-  File configFile;
-  configFile = SD.open(configFileName, FILE_READ);
-  if (configFile) {
-    logMessage("Reading config file " + String(configFileName));
-      
-    // read key value pairs from the file until there's nothing else in it:
-    while (configFile.available()) {
-      String key = configFile.readStringUntil('=');
-      String value = configFile.readStringUntil('\n');
-      processKeyValuePair(key,value,false);
-    }
-    // close the file:
-    configFile.close();
-  } else 
-    logMessage("Error opening config file " + String(configFileName));
+  if (sd_read_enabled) {
+    File configFile;
+    configFile = SD.open(configFileName, FILE_READ);
+    if (configFile) {
+      logMessage("Reading config file " + String(configFileName));
+        
+      // read key value pairs from the file until there's nothing else in it:
+      while (configFile.available()) {
+        String key = configFile.readStringUntil('=');
+        String value = configFile.readStringUntil('\n');
+        processKeyValuePair(key,value,false);
+      }
+      // close the file:
+      configFile.close();
+    } else 
+      logMessage("Error opening config file " + String(configFileName));
+  }
+  else
+    Serial.println("SD Reading disabled, so no reading config file.");
 }
 
 int processConfigInt (String key, String value) {
@@ -306,17 +315,22 @@ void writeSdFile(String sdMessage, char sdFileName[]) {
 
 void readSdFile(char sdFileName[])
 {
-  File myFile;
-  logMessage("Reading file to Serial: " + String(sdFileName));
-  myFile = SD.open(sdFileName, FILE_READ);
-  if (myFile) {
-    while (myFile.available()) {
-      Serial.write(myFile.read());
+  if (sd_read_enabled) {
+    File myFile;
+    logMessage("Reading file to Serial: " + String(sdFileName));
+    myFile = SD.open(sdFileName, FILE_READ);
+    if (myFile) {
+      while (myFile.available()) {
+        Serial.write(myFile.read());
+      }
+      myFile.close();
     }
-    myFile.close();
+    else
+      logError("Issue opening file for reading!");
   }
   else
-    logError("Issue opening file for reading!");
+    Serial.println("SD Reading disabled, so no reading file.");
+
 }
 
 void emptySdFile(char sdFileName[], String confirmationString){
@@ -468,10 +482,10 @@ void testMotors (String inputString) {
 }
 
 void readAllSensors () {
-  limitSwitchHit ("Up", "East", true);
-  limitSwitchHit ("Down", "East", true);
-  limitSwitchHit ("Up", "West", true);
-  limitSwitchHit ("Down", "West", true);
+  limitSwitchHit ("East", "Up", true);
+  limitSwitchHit ("East", "Down", true);
+  limitSwitchHit ("West", "Up", true);
+  limitSwitchHit ("West", "Down", true);
   getTempFromSensor ("inside", true);
   getTempFromSensor ("outside", true);
   checkSolarLevel ();
@@ -553,7 +567,7 @@ String getTimeStampString() {
 ////////////////////////End Time and logging Functions////////////////////////
 
 ////////////////////////Start High Tunnel Sensor Functions////////////////////////
-boolean limitSwitchHit (String rollDirection, String rollSide, boolean logWhenLimitIsNotHit) {
+boolean limitSwitchHit (String rollSide, String rollDirection, boolean logWhenLimitIsNotHit) {
   // TODO If these if statements are taking too long to run move them out to a function that only runs once per roll
   int limitSwitchId = west_winch_limit_pin;
   if (rollSide == "East")
@@ -562,11 +576,11 @@ boolean limitSwitchHit (String rollDirection, String rollSide, boolean logWhenLi
   int limitSwitchReading = analogRead(limitSwitchId);
   
   // Both top and bottom limit switches for each side are wired into a single analog pin using resistors
-  // If the Top is hit alone it reads 346, if the Bottom is hit alone it reads 260 and if Both are hit it reads 172
+  // If the Bottom is hit alone it reads 346, if the Top is hit alone it reads 260 and if Both are hit it reads 172
   // Cushion the check by 20 bits in case the reads are slightly off
   int cushion = 20;
-  int topHit = 346;
-  int bottomHit = 260;
+  int bottomHit = 346;
+  int topHit = 260;
   int bothHit = 172;
   
   // Set dirHit based on the direction that you are checking
@@ -575,7 +589,7 @@ boolean limitSwitchHit (String rollDirection, String rollSide, boolean logWhenLi
     dirHit = topHit;
   
   if (limitSwitchReading > dirHit - cushion && limitSwitchReading < dirHit + cushion) {
-    logMessage(rollSide + " " + rollDirection + " limit switch hit! Analog Reading: " + String(limitSwitchReading));
+    logMessage(rollSide + " " + rollDirection + " limit switch hit! Analog Reading: " + String(limitSwitchReading) + " dirHit=" + String(dirHit));
     return true;
   }
   if (limitSwitchReading > bothHit - cushion && limitSwitchReading < bothHit + cushion) {
@@ -607,21 +621,21 @@ float getTempFromSensor (String insideOrOutside, boolean disableManualEntry) {
   float sensorRead;
   
   if (insideOrOutside == "inside")
-    sensorRead = analogRead(inside_temp_sensor_pin);
+    sensorRead = multiSamplePin(inside_temp_sensor_pin, 100, 10);
   else 
-    sensorRead = analogRead(outside_temp_sensor_pin);
+    sensorRead = multiSamplePin(outside_temp_sensor_pin, 100, 10);
   
   /* Temperature Conversion
-     Divide the mV from the sensor by 100 to get temperature in C
+     Divide the mV from the sensor by 1023 (total LSB) and multiply by 5 (max voltage) and multiply by 100 to get temperature in C
      The sensor has 1023 bits for 5000 mV so 
-     Temp in C = sensorRead/1023*5000/100 = sensorRead/1023*50 = sensorRead*50.0/1023.0
+     Temp in C = sensorRead/1023*5*100 = sensorRead*500/1023 = sensorRead*.48867
      For reference 60 F = (60-32)*5/9 = 15.5 C
-       15.5 C = 15.5*100 = 1550 mV
-       1550 mV = 1550/5000*1023 = 317 analogRead
+       15.5 C = 15.5*10 = 155 mV
+       155 mV = 155*1023/5000 = 317 analogRead
      0 LSB = 0 C = 32 F
      Every 100 bits = 4.887 C = 8.797 F
   */
-  temperature=sensorRead*50.0/1023.0;
+  temperature=sensorRead*.48867;
   
   // Convert Celcius to Fahrenheit if set to F
   if (temperature_units == 'F')
@@ -629,6 +643,19 @@ float getTempFromSensor (String insideOrOutside, boolean disableManualEntry) {
   logMessage("The " + insideOrOutside + " temperature sensor has a digital value of " + sensorRead + " which is " + temperature + " " + String(temperature_units));
   return temperature;
 }
+
+float multiSamplePin (int pinID, int sampleCount, int delayBetweenSamples) {
+  int readSummation = 0;
+  for (int i = 0; i < sampleCount; i++) {
+    int pinReading = analogRead(pinID);
+    readSummation += pinReading;
+    delay(delayBetweenSamples);
+  }
+  float avgRead = readSummation/sampleCount;
+  logMessage("Average reading across " + String(sampleCount) + " samples was " + String(avgRead) + " for pinID=" + String(pinID) + " ");
+  return avgRead;
+}
+
 
 int checkSolarLevel () {
   // NOTE: solarReading is not currently used for anything other than logging so no need to allow manual entry of it
@@ -639,20 +666,47 @@ int checkSolarLevel () {
 }
 
 // TODO confirm that High means person detected
-boolean isPersonNearRollers() {
+// NOTE: Pir sensors read a positive value around 140 when there is motion and 0 to 75 when there is none
+// There are times when there is motion but the PIR sensor reads zero but this is okay because this 
+// function will be rechecked every winch_roll_milliseconds_between_limit_check milliseconds during rolling
+// If motion is detected require two consecutive zero reads before proceeding with rolling
+boolean isPersonNearRollers() {  
+  // If PIR Reads a value above pirMotionValue then Motion has been detected
+  int pirMotionValue = 80; 
+  // Quick exit no motion check. If this fails wait till you have two consecutive zero reads in a row before confirming no motion
+  int pirRead = analogRead(pir_sensor_pin);
+  if (pirRead < pirMotionValue)
+      return false;
+  else
+    logMessage("Initial PIR reading = " + String(pirRead));
+
   int millisecondsWaited = 0;
-  while (millisecondsWaited <= pir_wait_time_max_seconds*1000 && digitalRead(pir_sensor_pin) == HIGH) {
-    delay (pir_milliseconds_between_checks);
-    millisecondsWaited += pir_milliseconds_between_checks;
-    logMessage("PIR Sensors have detected someone near the rollers! Will check again shortly");
+  int consecutiveClearReads = 0;
+  while (millisecondsWaited <= pir_wait_time_max_seconds*1000 && consecutiveClearReads < 2) {
+    pirRead = analogRead(pir_sensor_pin);
+    if (pirRead < pirMotionValue)
+      consecutiveClearReads++;
+    else
+    {
+      consecutiveClearReads=0;
+      logMessage("PIR Sensors read " + String(pirRead) + " someone might be near the rollers! Will check again in " + String(pir_milliseconds_between_checks));
+    }
+    if (consecutiveClearReads < 2)
+    {
+      delay (pir_milliseconds_between_checks);
+      millisecondsWaited += pir_milliseconds_between_checks;  
+    }
   }
 
   // It doesn't make sense to manually set The PIR sensors value so we won't worry about manual_sensor_entry_mode for them
-  if (digitalRead(pir_sensor_pin) == HIGH) {
-    logMessage("PIR Sensors have detected someone near the rollers consistently, accepting that this will not change and moving on.");
+  if (consecutiveClearReads < 2) {
+    logMessage("PIR Sensors have detected someone near the rollers consistently over " + String(millisecondsWaited) + " ms. Moving on.");
     return true;
   }
-  return false;
+  else {
+    logMessage("PIR Sensors determined clear after " + String(millisecondsWaited) + "ms");
+    return false;
+  }
 }
 
 String getTunnelStatus () {
@@ -763,7 +817,7 @@ void manageHighTunnelTemp () {
     if (!shuttersOpen)
       changeShutters();
     // If both of the sides have been rolled completely then just continue with fans
-    else if (runFansNext || (limitSwitchHit("Up", "East", false) && limitSwitchHit("Up", "West", false)))
+    else if (runFansNext || (limitSwitchHit("East", "Up", false) && limitSwitchHit("West", "Up", false)))
       runFans();
     else
       rollSides("Up");
@@ -791,40 +845,40 @@ void manageHighTunnelTemp () {
 void changeShutters () {
   if (!shuttersOpen) {
     logMessage("Opening closed shutters");
-    digitalWrite(north_shutters_direction_digital_pin, LOW);
-    digitalWrite(south_shutters_direction_digital_pin, LOW);
+    digitalWrite(north_shutters_direction_digital_pin, HIGH);
+    digitalWrite(south_shutters_direction_digital_pin, HIGH);
     shuttersOpen = true;
   }
   else {
     logMessage("Closing open shutters");
-    digitalWrite(north_shutters_direction_digital_pin, HIGH);
-    digitalWrite(south_shutters_direction_digital_pin, HIGH);
+    digitalWrite(north_shutters_direction_digital_pin, LOW);
+    digitalWrite(south_shutters_direction_digital_pin, LOW);
     shuttersOpen = false;
   }
   // Delay for a moment to ensure shutter direction relay is powered up
   delay (100);
-  digitalWrite(north_shutters_power_digital_pin, HIGH);
-  digitalWrite(south_shutters_power_digital_pin, HIGH);
+  digitalWrite(north_shutters_power_digital_pin, LOW);
+  digitalWrite(south_shutters_power_digital_pin, LOW);
   // Delay for another moment to give shutter time to open
   delay(200);
   
   // Power down both relays
-  digitalWrite(north_shutters_direction_digital_pin, LOW);
-  digitalWrite(south_shutters_direction_digital_pin, LOW);
-  digitalWrite(north_shutters_power_digital_pin, LOW);
-  digitalWrite(south_shutters_power_digital_pin, LOW);
+  digitalWrite(north_shutters_direction_digital_pin, HIGH);
+  digitalWrite(south_shutters_direction_digital_pin, HIGH);
+  digitalWrite(north_shutters_power_digital_pin, HIGH);
+  digitalWrite(south_shutters_power_digital_pin, HIGH);
 }
 
 void rollSides (String rollDirection) {
-  rollSide(rollDirection, "East");
-  rollSide(rollDirection, "West");
+  rollSide("East", rollDirection);
+  rollSide("West", rollDirection);
   // Only run fans next if they are set to run for some time. If they are set to run 0 seconds they are disabled
   if (fan_run_seconds > 0)
     runFansNext = true;
 }
 
-void rollSide (String rollDirection, String rollSide) {
-  setRollDirection(rollDirection, true, rollSide);
+void rollSide (String rollSide, String rollDirection) {
+  setRollDirection(rollSide, rollDirection, true);
   int millisecondsRolling = 0;
   int rollPowerPin;
   
@@ -835,22 +889,28 @@ void rollSide (String rollDirection, String rollSide) {
   
   logMessage("Starting to roll " + rollSide + " side " + rollDirection);
     
-  if (!limitSwitchHit(rollDirection, rollSide, false) && !isPersonNearRollers()) {
-    digitalWrite(rollPowerPin, HIGH);
+  boolean personNearRollers = isPersonNearRollers();
+      
+  if (!limitSwitchHit(rollSide, rollDirection, false) && !personNearRollers) {
+    digitalWrite(rollPowerPin, LOW);
   }
   
-  while (millisecondsRolling <= winch_roll_seconds*1000 && !limitSwitchHit(rollDirection, rollSide, false) && !isPersonNearRollers()) {
+  while (millisecondsRolling <= winch_roll_seconds*1000 && !limitSwitchHit(rollSide, rollDirection, false) && !personNearRollers) {
     delay (winch_roll_milliseconds_between_limit_check);
     millisecondsRolling += winch_roll_milliseconds_between_limit_check;
+    digitalWrite(rollPowerPin, HIGH);
+    personNearRollers = isPersonNearRollers();
+    if (!personNearRollers)
+      digitalWrite(rollPowerPin, LOW);
   }
   
-  digitalWrite(rollPowerPin, LOW);
+  digitalWrite(rollPowerPin, HIGH);
   logMessage("Ending " + rollSide + " side roll " + rollDirection + " after " + String(millisecondsRolling) + " ms.");
-  setRollDirection(rollDirection, false, rollSide);
+  setRollDirection(rollSide, rollDirection, false);
 }
 
-// Note: Down is LOW Up is HIGH
-void setRollDirection(String rollDirection, boolean powerOn, String rollSide)
+// Note: Down is HIGH Up is LOW and confusingly enough setting to HIGH powers down the relay
+void setRollDirection(String rollSide, String rollDirection, boolean powerOn)
 {
   int rollWinchPin;
   if (rollSide == "East")
@@ -861,23 +921,24 @@ void setRollDirection(String rollDirection, boolean powerOn, String rollSide)
   if(powerOn) {
     logMessage("Setting roll direction for " + rollSide + " side to " + rollDirection);
     if (rollDirection == "Down")
-      digitalWrite(rollWinchPin, LOW);
-    else 
       digitalWrite(rollWinchPin, HIGH);
+    else 
+      digitalWrite(rollWinchPin, LOW);
     delay (100); // Add a short delay to ensure the relay has time to change states TODO confirm this delay time is good
     
   }
   else {
     logMessage("Rolling complete, powering down " + rollSide + " roll direction relays");
-    digitalWrite(rollWinchPin, LOW);
+    digitalWrite(rollWinchPin, HIGH);
   }
 }
 
+// NOTE: Low powers on fans
 void runFans() {
   logMessage ("Running fans for " + String(fan_run_seconds) + " seconds");
-  digitalWrite(fan_power_digital_pin, HIGH);
-  delay(fan_run_seconds*1000);
   digitalWrite(fan_power_digital_pin, LOW);
+  delay(fan_run_seconds*1000);
+  digitalWrite(fan_power_digital_pin, HIGH);
   // Only run winches next if they are set to run for some time. If they are set to run 0 seconds they are disabled
   if (winch_roll_seconds > 0)
     runFansNext = false;
@@ -885,34 +946,47 @@ void runFans() {
 ////////////////////////End High Tunnel Control State Functions////////////////////////
 
 // Configure digital output pins as such
-void setDigitalPinModes () {
-  logMessage("Configuring Digital Pin Modes");
-  setPinToOutput(east_winch_roll_direction_digital_pin);
-  setPinToOutput(east_winch_roll_power_digital_pin);
-  setPinToOutput(west_winch_roll_direction_digital_pin);
-  setPinToOutput(west_winch_roll_power_digital_pin);
-  setPinToOutput(north_shutters_direction_digital_pin);
-  setPinToOutput(south_shutters_direction_digital_pin);
-  setPinToOutput(north_shutters_power_digital_pin);
-  setPinToOutput(south_shutters_power_digital_pin);
-  setPinToOutput(fan_power_digital_pin);
-  setPinToInput(heat_wave_switch_pin);
-  setPinToInput(pir_sensor_pin);
+void setDigitalPinModes (boolean logActions) {
+  if (logActions)
+    logMessage("Configuring Digital Pin Modes");
+  setPinToOutput(east_winch_roll_direction_digital_pin, logActions);
+  digitalWrite(east_winch_roll_direction_digital_pin, HIGH);
+  setPinToOutput(east_winch_roll_power_digital_pin, logActions);
+  digitalWrite(east_winch_roll_power_digital_pin, HIGH);
+  setPinToOutput(west_winch_roll_direction_digital_pin, logActions);
+  digitalWrite(west_winch_roll_direction_digital_pin, HIGH);
+  setPinToOutput(west_winch_roll_power_digital_pin, logActions);
+  digitalWrite(west_winch_roll_power_digital_pin, HIGH);
+  setPinToOutput(north_shutters_direction_digital_pin, logActions);
+  digitalWrite(north_shutters_direction_digital_pin, HIGH);
+  setPinToOutput(south_shutters_direction_digital_pin, logActions);
+  digitalWrite(south_shutters_direction_digital_pin, HIGH);
+  setPinToOutput(north_shutters_power_digital_pin, logActions);
+  digitalWrite(north_shutters_power_digital_pin, HIGH);
+  setPinToOutput(south_shutters_power_digital_pin, logActions);
+  digitalWrite(south_shutters_power_digital_pin, HIGH);
+  setPinToOutput(fan_power_digital_pin, logActions);
+  digitalWrite(fan_power_digital_pin, HIGH);
+  setPinToInput(heat_wave_switch_pin, logActions);
+  setPinToInput(pir_sensor_pin, logActions);
 }
 
-void setPinToOutput (int pinID) {
-  logMessage("Setting pinID: " + String(pinID) + " to Output");
+void setPinToOutput (int pinID, boolean logActions) {
+  if (logActions)
+    logMessage("Setting pinID: " + String(pinID) + " to Output");
   pinMode(pinID, OUTPUT);
 }
 
-void setPinToInput (int pinID) {
-  logMessage("Setting pinID: " + String(pinID) + " to Input");
+void setPinToInput (int pinID, boolean logActions) {
+  if (logActions)
+    logMessage("Setting pinID: " + String(pinID) + " to Input");
   pinMode(pinID, INPUT);
 }
 
 void setup(){
   Serial.begin(9600);
   wf.begin();
+  setDigitalPinModes(true);
 /*  if (! rtc.begin())
     Serial.println("ERROR: Couldn't find RTC (DS1307 Real Time Clock)");
 
@@ -932,12 +1006,12 @@ void setup(){
   ensureLogFileExists(configFileName);
   readConfigFromFile();
   Serial.println();
-  setDigitalPinModes();
   printHelp();
 }
 
 void loop() {
   char incomingByte;
+  setDigitalPinModes(false);
   if (automatically_start_high_tunnel_control)
     processSerialInput('b');
     
