@@ -888,10 +888,11 @@ void rollSide (String rollSide, String rollDirection) {
     rollPowerPin = west_winch_roll_power_digital_pin;
   
   logMessage("Starting to roll " + rollSide + " side " + rollDirection);
-    
+  
   boolean personNearRollers = isPersonNearRollers();
-      
-  if (!limitSwitchHit(rollSide, rollDirection, false) && !personNearRollers) {
+  
+  if (!limitSwitchHit(rollSide, rollDirection, true) && !personNearRollers) {
+    logMessage("Powering on side roll through pinID " + String(rollPowerPin));
     digitalWrite(rollPowerPin, LOW);
   }
   
@@ -902,6 +903,8 @@ void rollSide (String rollSide, String rollDirection) {
     personNearRollers = isPersonNearRollers();
     if (!personNearRollers)
       digitalWrite(rollPowerPin, LOW);
+    else
+      logMessage("Powering off side roll through pinID " + String(rollPowerPin));
   }
   
   digitalWrite(rollPowerPin, HIGH);
