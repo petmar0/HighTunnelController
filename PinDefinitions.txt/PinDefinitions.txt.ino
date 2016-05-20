@@ -1,16 +1,5 @@
 /*
-OLD Pin Definitions
-Analog
-A0 Inside Temp
-A1 West limit switches
-A2 East limit switches
-A3 Pir
-A4 Outside Temp
-A5 Solar (not currently connected)
-A6 
-A7 
-
-NEW Pin Definitions
+Pin Definitions
 Analog
 A0 West limit switches
 A1 Outside Temp
