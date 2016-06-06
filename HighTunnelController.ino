@@ -621,9 +621,9 @@ float getTempFromSensor (String insideOrOutside, boolean disableManualEntry) {
   float sensorRead;
   
   if (insideOrOutside == "inside")
-    sensorRead = multiSamplePin(inside_temp_sensor_pin, 100, 10);
+    sensorRead = multiSamplePin(inside_temp_sensor_pin, 25, 40);
   else 
-    sensorRead = multiSamplePin(outside_temp_sensor_pin, 100, 10);
+    sensorRead = multiSamplePin(outside_temp_sensor_pin, 25, 40);
   
   /* Temperature Conversion
      Divide the mV from the sensor by 1023 (total LSB) and multiply by 5 (max voltage) and multiply by 100 to get temperature in C
@@ -645,14 +645,23 @@ float getTempFromSensor (String insideOrOutside, boolean disableManualEntry) {
 }
 
 float multiSamplePin (int pinID, int sampleCount, int delayBetweenSamples) {
-  int readSummation = 0;
+  float readSummation = 0.0;
+  int minPinReading = 1024;
+  int maxPinReading = 0;
+
   for (int i = 0; i < sampleCount; i++) {
     int pinReading = analogRead(pinID);
+    if (pinReading > maxPinReading)
+      maxPinReading = pinReading;
+    if (pinReading < minPinReading)
+      minPinReading = pinReading;
     readSummation += pinReading;
     delay(delayBetweenSamples);
   }
   float avgRead = readSummation/sampleCount;
-  logMessage("Average reading across " + String(sampleCount) + " samples was " + String(avgRead) + " for pinID=" + String(pinID) + " ");
+      
+  logMessage(String(sampleCount) + " samples on pin " + String(pinID) + " min " + String(minPinReading) + " avg " + String(avgRead) + " max " + String(maxPinReading));
+
   return avgRead;
 }
 
@@ -887,7 +896,7 @@ void rollSide (String rollSide, String rollDirection) {
   else 
     rollPowerPin = west_winch_roll_power_digital_pin;
   
-  logMessage("Starting to roll " + rollSide + " side " + rollDirection);
+  logMessage("Starting to roll " + rollSide + " side " + rollDirection + " using pin " + rollPowerPin);
   
   boolean personNearRollers = isPersonNearRollers();
   
@@ -899,6 +908,8 @@ void rollSide (String rollSide, String rollDirection) {
   while (millisecondsRolling <= winch_roll_seconds*1000 && !limitSwitchHit(rollSide, rollDirection, false) && !personNearRollers) {
     delay (winch_roll_milliseconds_between_limit_check);
     millisecondsRolling += winch_roll_milliseconds_between_limit_check;
+    
+    // Checking isPersonNearRollers can take seconds to resolve so stop rolling while it's going
     digitalWrite(rollPowerPin, HIGH);
     personNearRollers = isPersonNearRollers();
     if (!personNearRollers)
